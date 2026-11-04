@@ -65,7 +65,7 @@ function toast(msg, ms = 3500) {
 }
 
 /* ---------- Mapa ---------- */
-let map, camadaEixo, camadaPontos, marcadorEu;
+let map, camadaEixo, camadaPontos, camadaProjeto, camadaKm, marcadorEu;
 const blocosVisiveis = new Map();
 let blocosMeta = [];
 
@@ -73,11 +73,19 @@ function iniciarMapa() {
   map = L.map('map', { zoomControl: true, maxZoom: 22 }).setView([-13.5, -50.5], 7);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 22, maxNativeZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
   map.createPane('orto').style.zIndex = 300;
+  map.createPane('projeto').style.zIndex = 350;
+  camadaProjeto = L.layerGroup().addTo(map);
+  camadaKm = L.layerGroup().addTo(map);
   camadaEixo = L.layerGroup().addTo(map);
   camadaPontos = L.layerGroup().addTo(map);
+  L.control.layers(null, { 'Projeto (KMZ)': camadaProjeto, 'Rótulos de km': camadaKm, 'Eixo principal': camadaEixo }, { position: 'topright' }).addTo(map);
   map.on('moveend', atualizarBlocos);
+  const rotulos = () => map.getContainer().classList.toggle('sem-km', map.getZoom() < 15);
+  map.on('zoomend', rotulos);
+  rotulos();
   map.on('click', e => { if (escolhendo) concluirEscolha(e.latlng); });
   desenharEixo();
+  desenharProjeto();
   desenharPontos();
   carregarOrtos();
   enquadrar();
@@ -92,6 +100,26 @@ function desenharEixo() {
   if (!camadaEixo) return;
   camadaEixo.clearLayers();
   for (const e of S.eixos) L.polyline(e.coords, { color: '#f2b134', weight: 4 }).bindTooltip([e.pacote, e.segmento].filter(Boolean).join(' · ') || 'Eixo').addTo(camadaEixo);
+}
+const chaveDesenho = x => `desenho|${x.pacote}|${x.segmento}`;
+async function salvarDesenho(eixo, parsed) {
+  await dbPut('kv', { grupos: parsed.desenho, marcos: parsed.marks }, chaveDesenho(eixo));
+}
+async function desenharProjeto() {
+  if (!camadaProjeto) return;
+  camadaProjeto.clearLayers();
+  camadaKm.clearLayers();
+  const renderer = L.canvas({ pane: 'projeto', padding: 0.2 });
+  for (const e of S.eixos) {
+    const d = await dbGet('kv', chaveDesenho(e));
+    if (!d) continue;
+    for (const [cor, linhas] of Object.entries(d.grupos)) {
+      L.polyline(linhas, { color: cor, weight: 1.2, opacity: 0.95, interactive: false, renderer }).addTo(camadaProjeto);
+    }
+    for (const m of d.marcos) {
+      L.marker([m.lat, m.lon], { interactive: false, keyboard: false, icon: L.divIcon({ className: 'kmrot', html: esc(m.texto), iconSize: null }) }).addTo(camadaKm);
+    }
+  }
 }
 function desenharPontos() {
   if (!camadaPontos) return;
@@ -504,6 +532,7 @@ async function sincronizar(manual = true) {
     txt.textContent = 'Sincronizar';
     atualizarPendentes();
     atualizarAviso();
+    if (!$('#tabAjustes').hidden) mostrarAjustes();
   }
 }
 async function atualizarAviso() {
@@ -622,16 +651,17 @@ async function atualizarCatalogo() {
     const k = seg.arquivos.find(a => /\.km[zl]$/i.test(a.nome));
     if (!k) continue;
     const atual = S.eixos.find(e => segChave(e) === segChave(seg));
-    if (atual && atual.arquivoId === k.id && atual.alterado === k.alterado) continue;
+    if (atual && atual.arquivoId === k.id && atual.alterado === k.alterado && await dbGet('kv', chaveDesenho(atual))) continue;
     try {
       const parsed = await Geo.parseKmz(await arquivoDoDrive(k));
       const eixo = Geo.buildAxis(parsed, { pacote: seg.pacote, segmento: seg.segmento, origem: k.nome });
       eixo.arquivoId = k.id; eixo.alterado = k.alterado;
+      await salvarDesenho(eixo, parsed);
       S.eixos = S.eixos.filter(e => segChave(e) !== segChave(seg)).concat(eixo);
       mudou = true;
     } catch (e) { console.warn(e); toast(`Eixo de ${seg.segmento}: ${e.message}`, 6000); }
   }
-  if (mudou) { await salvarS('eixos'); desenharEixo(); }
+  if (mudou) { await salvarS('eixos'); desenharEixo(); await desenharProjeto(); }
 }
 function arquivosMapa(seg) {
   const a = seg.arquivos;
@@ -703,7 +733,8 @@ async function importarEixoLocal(file) {
   const eixo = Geo.buildAxis(parsed, { pacote: m ? m[1] : '', segmento: m ? m[2] : '', origem: file.name });
   S.eixos = S.eixos.filter(e => segChave(e) !== segChave(eixo) || !eixo.pacote).concat(eixo);
   await salvarS('eixos');
-  desenharEixo(); mostrarAjustes(); enquadrar();
+  await salvarDesenho(eixo, parsed);
+  desenharEixo(); await desenharProjeto(); mostrarAjustes(); enquadrar();
   toast(eixo.marcos ? `Eixo reconhecido com ${eixo.marcos} rótulos de km.` : 'Eixo sem rótulos de km: confira o km calculado.', 6000);
 }
 async function importarOrto(arquivos, meta = {}) {

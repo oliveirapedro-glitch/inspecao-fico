@@ -27,9 +27,28 @@ const Geo = (() => {
     }
     const doc = new DOMParser().parseFromString(kml, 'text/xml');
     if (doc.querySelector('parsererror')) throw new Error('Não foi possível ler o KML.');
-    const lines = [], marks = [];
+    const lines = [], marks = [], desenho = {};
+    const lerCoords = c => c.textContent.trim().split(/\s+/).map(t => {
+      const [lon, lat] = t.split(',').map(Number);
+      return [lat, lon];
+    }).filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    const corKml = el => {
+      const c = el && el.getElementsByTagName('color')[0];
+      const t = c ? c.textContent.trim() : '';
+      return /^[0-9a-f]{8}$/i.test(t) ? '#' + t.slice(6, 8) + t.slice(4, 6) + t.slice(2, 4) : '#ffffff';
+    };
     for (const pm of doc.getElementsByTagName('Placemark')) {
       const nome = textoNome(pm);
+      // Desenho completo do projeto, agrupado por cor. O contorno dos textos do CAD fica de fora.
+      if (!/^MText/i.test(nome)) {
+        const cor = corKml(pm.getElementsByTagName('LineStyle')[0] || pm.getElementsByTagName('PolyStyle')[0]);
+        for (const g of [...pm.getElementsByTagName('LineString'), ...pm.getElementsByTagName('LinearRing')]) {
+          const c = g.getElementsByTagName('coordinates')[0];
+          if (!c) continue;
+          const pts = lerCoords(c).map(p => [Math.round(p[0] * 1e6) / 1e6, Math.round(p[1] * 1e6) / 1e6]);
+          if (pts.length >= 2) (desenho[cor] = desenho[cor] || []).push(pts);
+        }
+      }
       for (const ls of pm.getElementsByTagName('LineString')) {
         const c = ls.getElementsByTagName('coordinates')[0];
         if (!c) continue;
@@ -45,13 +64,13 @@ const Geo = (() => {
         const c = pt && pt.getElementsByTagName('coordinates')[0];
         if (c) {
           const [lon, lat] = c.textContent.trim().split(',').map(Number);
-          if (Number.isFinite(lat) && Number.isFinite(lon)) marks.push({ km: Number(m[1]) + Number(m[2]) / 1000, lat, lon });
+          if (Number.isFinite(lat) && Number.isFinite(lon)) marks.push({ km: Number(m[1]) + Number(m[2]) / 1000, lat, lon, texto: nome });
         }
       }
     }
     if (!lines.length) throw new Error('Nenhuma linha encontrada no arquivo.');
     const docEl = doc.getElementsByTagName('Document')[0];
-    return { nome: docEl ? textoNome(docEl) : '', arquivo: file.name || '', lines, marks };
+    return { nome: docEl ? textoNome(docEl) : '', arquivo: file.name || '', lines, marks, desenho };
   }
 
   function lengthOf(coords) {
