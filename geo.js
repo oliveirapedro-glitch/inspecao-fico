@@ -331,7 +331,7 @@ const Geo = (() => {
         if (!blob || blob.type !== 'image/webp') {
           // O iPhone não gera WebP. O JPEG não tem transparência, então o fundo fica cinza.
           ctx.globalCompositeOperation = 'destination-over';
-          ctx.fillStyle = '#d9dfdc';
+          ctx.fillStyle = '#e3eaf2';
           ctx.fillRect(0, 0, pw, ph);
           ctx.globalCompositeOperation = 'source-over';
           blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.8));

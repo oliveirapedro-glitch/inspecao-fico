@@ -99,7 +99,7 @@ const temLoc = p => p.lat !== '' && p.lon !== '' && Number.isFinite(Number(p.lat
 function desenharEixo() {
   if (!camadaEixo) return;
   camadaEixo.clearLayers();
-  for (const e of S.eixos) L.polyline(e.coords, { color: '#f2b134', weight: 4 }).bindTooltip([e.pacote, e.segmento].filter(Boolean).join(' · ') || 'Eixo').addTo(camadaEixo);
+  for (const e of S.eixos) L.polyline(e.coords, { color: '#f7890a', weight: 4 }).bindTooltip([e.pacote, e.segmento].filter(Boolean).join(' · ') || 'Eixo').addTo(camadaEixo);
 }
 const chaveDesenho = x => `desenho|${x.pacote}|${x.segmento}`;
 async function salvarDesenho(eixo, parsed) {
