@@ -1,0 +1,102 @@
+:root {
+  --verde: #17453b; --verde2: #225f51; --ambar: #f2b134; --fundo: #f3f4f1; --texto: #17201d; --sub: #56635e;
+  --linha: #cfd5d1; --verm: #b3261e; --branco: #fff;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--fundo); color: var(--texto); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#app { display: flex; flex-direction: column; height: 100dvh; }
+[hidden] { display: none !important; }
+
+header { display: flex; gap: 8px; align-items: center; justify-content: space-between; background: var(--verde); padding: calc(8px + env(safe-area-inset-top)) 12px 8px; }
+.etapa { display: flex; border: 1px solid #ffffff66; border-radius: 8px; overflow: hidden; }
+.etapa button { border: 0; background: transparent; color: #fff; padding: 8px 12px; font: inherit; font-size: 14px; min-height: 40px; }
+.etapa button.on { background: var(--ambar); color: #1d1a10; font-weight: 700; }
+.sync { background: #fff; color: var(--verde); border: 0; border-radius: 8px; padding: 8px 12px; font: inherit; font-size: 14px; font-weight: 600; min-height: 40px; }
+.sync b { background: var(--verm); color: #fff; border-radius: 10px; padding: 1px 7px; margin-left: 4px; font-size: 12px; }
+#aviso { background: #fff3cd; color: #4d3a00; padding: 8px 12px; font-size: 14px; }
+
+main { flex: 1; min-height: 0; position: relative; }
+.tab { height: 100%; overflow: auto; }
+.tab.pad { padding: 12px 16px 32px; max-width: 720px; margin: 0 auto; }
+#tabMapa { position: relative; overflow: hidden; }
+#map { position: absolute; inset: 0; background: #dfe5e1; }
+
+nav { display: flex; background: #fff; border-top: 1px solid var(--linha); padding-bottom: env(safe-area-inset-bottom); }
+nav button { flex: 1; border: 0; background: none; font: inherit; font-size: 14px; color: var(--sub); padding: 13px 4px; }
+nav button.on { color: var(--verde); font-weight: 700; box-shadow: inset 0 3px 0 var(--verde); }
+
+.fab { position: absolute; right: 12px; bottom: 16px; z-index: 500; background: var(--verde); color: #fff; border: 0; border-radius: 26px; padding: 14px 18px; font: inherit; font-weight: 700; box-shadow: 0 2px 8px #0005; }
+.fab2 { bottom: 76px; width: 48px; height: 48px; padding: 0; background: #fff; color: var(--verde); font-size: 22px; }
+#escolhaBanner { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 600; background: var(--ambar); padding: 10px 12px; border-radius: 8px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+#escolhaBanner button { background: #fff; border: 0; border-radius: 6px; padding: 7px 10px; font: inherit; }
+
+.barra { display: flex; gap: 8px; padding: 10px 12px 0; }
+.barra input { flex: 1; min-width: 0; }
+.barra select { width: 130px; }
+.acoes { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+#tabPontos .acoes { padding: 0 12px; }
+input, select, textarea { width: 100%; font: inherit; padding: 10px; border: 1px solid var(--linha); border-radius: 8px; background: #fff; color: var(--texto); }
+input[type=checkbox] { width: 20px; height: 20px; }
+label { display: block; font-size: 14px; font-weight: 600; margin: 8px 0; }
+label input, label select, label textarea { margin-top: 3px; font-weight: 400; font-size: 16px; }
+label.check { display: flex; gap: 8px; align-items: center; padding-top: 24px; }
+label.check input { margin: 0; }
+.btn, .prim, .perigo { display: inline-block; border-radius: 8px; padding: 11px 14px; font: inherit; font-size: 15px; font-weight: 600; margin: 0; cursor: pointer; }
+.btn { background: #fff; border: 1px solid var(--verde2); color: var(--verde); }
+.prim { background: var(--verde); border: 1px solid var(--verde); color: #fff; }
+.perigo { background: #fff; border: 1px solid var(--verm); color: var(--verm); width: 100%; margin-top: 24px; }
+.link { background: none; border: 0; color: var(--verde); font: inherit; font-weight: 600; padding: 8px 4px; }
+.grade { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.grade.tres { grid-template-columns: 1fr 1fr 1fr; }
+h2 { font-size: 18px; margin: 22px 0 6px; color: var(--verde); }
+h2:first-child { margin-top: 4px; }
+h3 { font-size: 16px; margin: 18px 0 2px; color: var(--verde); }
+.sub { color: var(--sub); font-size: 14px; margin: 4px 0; }
+.sub.alerta { color: var(--verm); font-weight: 600; }
+
+#lista, .simples { list-style: none; margin: 0; padding: 0; }
+#lista li { background: #fff; border-bottom: 1px solid var(--linha); padding: 12px; cursor: pointer; display: flex; gap: 10px; align-items: flex-start; }
+#lista .tit { font-weight: 600; }
+#lista .meta { color: var(--sub); font-size: 13px; }
+#lista .corpo { flex: 1; min-width: 0; }
+#lista .vazio { display: block; color: var(--sub); text-align: center; padding: 28px 16px; cursor: default; }
+.bola { width: 14px; height: 14px; border-radius: 50%; flex: none; margin-top: 4px; border: 2px solid #fff; box-shadow: 0 0 0 1px #0006; }
+.s-averificar { background: #e08a00; } .s-verificado { background: #1e8e3e; } .s-requeracao { background: #c5221f; }
+.chip { font-size: 12px; color: #4d3a00; background: #fff3cd; border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
+.pin { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 5px #0009; }
+.eu { width: 16px; height: 16px; border-radius: 50%; background: #1a73e8; border: 3px solid #fff; box-shadow: 0 0 0 1px #0007; }
+.simples li { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--linha); border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-size: 14px; }
+
+#ficha { position: fixed; inset: 0; z-index: 1000; background: var(--fundo); overflow: auto; }
+#form { max-width: 720px; margin: 0 auto; }
+.fichaTopo { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #fff; border-bottom: 1px solid var(--linha); padding: calc(8px + env(safe-area-inset-top)) 12px 8px; }
+.fichaTopo strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fichaCorpo { padding: 8px 16px 48px; }
+.fotos { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.foto { background: #fff; border: 1px solid var(--linha); border-radius: 8px; overflow: hidden; }
+.foto img { display: block; width: 100%; height: 110px; object-fit: cover; background: #e5e8e5; }
+.foto .falta { height: 110px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px; color: var(--sub); font-size: 13px; background: #e5e8e5; }
+.foto input { border: 0; border-top: 1px solid var(--linha); border-radius: 0; font-size: 14px; padding: 7px; }
+.foto div.pe { display: flex; justify-content: space-between; align-items: center; padding: 2px 7px 4px; font-size: 12px; color: var(--sub); }
+.foto button { border: 0; background: none; color: var(--verm); font: inherit; padding: 4px 0; }
+
+#toast { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: 2000; background: #222; color: #fff; padding: 10px 14px; border-radius: 8px; font-size: 14px; max-width: 90vw; }
+#impressao { display: none; }
+
+@media print {
+  html, body { height: auto; background: #fff; }
+  #app { display: none !important; }
+  #impressao { display: block; font-size: 11pt; color: #000; }
+  #impressao h1 { font-size: 18pt; margin: 0 0 4px; }
+  #impressao table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 9.5pt; }
+  #impressao th, #impressao td { border: 1px solid #888; padding: 3px 5px; text-align: left; vertical-align: top; }
+  #impressao .ponto { break-inside: avoid; border-top: 2px solid #17453b; padding-top: 8px; margin-top: 14px; }
+  #impressao .ponto h2 { font-size: 13pt; margin: 0 0 4px; color: #17453b; }
+  #impressao p { margin: 3px 0; white-space: pre-wrap; }
+  #impressao .imgs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+  #impressao figure { margin: 0; break-inside: avoid; }
+  #impressao img { width: 100%; max-height: 8cm; object-fit: contain; }
+  #impressao figcaption { font-size: 9pt; }
+  @page { size: A4; margin: 15mm; }
+}

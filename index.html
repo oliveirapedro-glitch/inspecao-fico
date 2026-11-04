@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Inspeção FICO</title>
+<meta name="theme-color" content="#17453b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Inspeção FICO">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="etapa" role="group" aria-label="Etapa atual">
+      <button id="etapaPre" type="button">Pré-inspeção</button>
+      <button id="etapaCampo" type="button">Campo</button>
+    </div>
+    <button id="btnSync" type="button" class="sync"><span id="syncTxt">Sincronizar</span> <b id="pendentes" hidden></b></button>
+  </header>
+  <div id="aviso" hidden></div>
+
+  <main>
+    <section id="tabMapa" class="tab">
+      <div id="map"></div>
+      <div id="escolhaBanner" hidden>Toque no mapa para definir o local <button id="btnCancelaEscolha" type="button">Cancelar</button></div>
+      <button id="btnGps" type="button" class="fab fab2" aria-label="Centralizar na minha posição">◎</button>
+      <button id="btnNovoMapa" type="button" class="fab">+ Novo ponto</button>
+    </section>
+
+    <section id="tabPontos" class="tab" hidden>
+      <div class="barra">
+        <input id="busca" type="search" placeholder="Buscar por km, pacote, resumo…" aria-label="Buscar pontos">
+        <select id="filtroStatus" aria-label="Filtrar por status">
+          <option value="">Todos</option>
+          <option>A verificar</option><option>Verificado</option><option>Requer ação</option>
+        </select>
+      </div>
+      <div class="acoes">
+        <button id="btnNovoLista" type="button" class="prim">+ Novo ponto</button>
+        <label class="btn">Importar fotos de drone<input id="fotosDrone" type="file" accept="image/*" multiple hidden></label>
+      </div>
+      <ul id="lista"></ul>
+    </section>
+
+    <section id="tabRelatorio" class="tab pad" hidden>
+      <h2>Relatório</h2>
+      <div class="grade">
+        <label>Pacote<select id="repPacote"></select></label>
+        <label>Segmento<select id="repSegmento"></select></label>
+        <label>Status<select id="repStatus"><option value="">Todos</option><option>A verificar</option><option>Verificado</option><option>Requer ação</option></select></label>
+        <label>Origem<select id="repOrigem"><option value="">Todas</option><option>Pré-inspeção</option><option>Campo</option></select></label>
+        <label>De<input id="repDe" type="date"></label>
+        <label>Até<input id="repAte" type="date"></label>
+      </div>
+      <label>Título<input id="repTitulo" value="Relatório de Inspeção de Campo"></label>
+      <p id="repResumo" class="sub"></p>
+      <div class="acoes">
+        <button id="btnPdf" type="button" class="prim">Gerar relatório (PDF)</button>
+        <button id="btnCsv" type="button" class="btn">Exportar planilha (CSV)</button>
+      </div>
+    </section>
+
+    <section id="tabAjustes" class="tab pad" hidden>
+      <h2>Identificação e conexão</h2>
+      <label>Seu nome<input id="cfgNome" autocomplete="name"></label>
+      <label>Endereço do backend (Apps Script)<input id="cfgUrl" inputmode="url" placeholder="https://script.google.com/macros/s/…/exec"></label>
+      <label>Chave de acesso<input id="cfgChave" type="password" autocomplete="off"></label>
+      <div class="acoes"><button id="btnSalvarCfg" type="button" class="prim">Salvar e testar</button></div>
+
+      <h2>Mapas por segmento</h2>
+      <p class="sub">Os eixos são carregados do Drive ao sincronizar. Baixe o mapa dos segmentos que vai percorrer, com internet, antes de ir a campo.</p>
+      <label>Qualidade do mapa neste aparelho
+        <select id="ortoQualidade">
+          <option value="4096">Leve (até 4.096 px)</option>
+          <option value="8192">Média (até 8.192 px)</option>
+          <option value="16384" selected>Alta (até 16.384 px)</option>
+        </select>
+      </label>
+      <ul id="segmentos" class="simples"></ul>
+      <p id="ortoProg" class="sub" hidden></p>
+      <div class="acoes"><button id="btnAtualizarMapas" type="button" class="btn">Atualizar lista do Drive</button></div>
+
+      <h3>Importar direto do aparelho</h3>
+      <p class="sub">Alternativa sem Drive. Para o mapa, escolha o .zip ou o .tif com .tfw e .prj.</p>
+      <div class="acoes">
+        <label class="btn">Importar KMZ<input id="arqEixo" type="file" accept=".kmz,.kml" hidden></label>
+        <label class="btn">Importar mapa<input id="arqOrto" type="file" accept=".zip,.tif,.tiff,.tfw,.prj" multiple hidden></label>
+      </div>
+      <p id="eixoInfo" class="sub"></p>
+      <ul id="ortos" class="simples"></ul>
+
+      <h2>Segurança dos dados</h2>
+      <p id="espaco" class="sub"></p>
+      <div class="acoes"><button id="btnBackup" type="button" class="btn">Baixar backup (ZIP)</button></div>
+    </section>
+  </main>
+
+  <nav>
+    <button data-tab="tabMapa" type="button">Mapa</button>
+    <button data-tab="tabPontos" type="button">Pontos</button>
+    <button data-tab="tabRelatorio" type="button">Relatório</button>
+    <button data-tab="tabAjustes" type="button">Ajustes</button>
+  </nav>
+
+  <div id="ficha" hidden>
+    <form id="form" autocomplete="off">
+      <div class="fichaTopo">
+        <button id="btnFechar" type="button" class="link">Voltar</button>
+        <strong id="fichaTitulo"></strong>
+        <button type="submit" class="prim">Salvar</button>
+      </div>
+      <div class="fichaCorpo">
+        <div class="grade tres">
+          <label>Pacote<input id="fPacote" list="listaPacotes"></label>
+          <label>Segmento<input id="fSegmento" list="listaSegmentos"></label>
+          <label>KM<input id="fKm" placeholder="000+000"></label>
+        </div>
+        <datalist id="listaPacotes"></datalist>
+        <datalist id="listaSegmentos"></datalist>
+        <p id="fEixo" class="sub"></p>
+        <label>Resumo<input id="fResumo" required maxlength="140"></label>
+        <label>Descrição<textarea id="fDescricao" rows="3"></textarea></label>
+        <label>Observação de campo<textarea id="fObs" rows="3"></textarea></label>
+        <label>Status<select id="fStatus"><option>A verificar</option><option>Verificado</option><option>Requer ação</option></select></label>
+
+        <h3>Localização</h3>
+        <div class="grade">
+          <label>Latitude<input id="fLat" inputmode="decimal"></label>
+          <label>Longitude<input id="fLon" inputmode="decimal"></label>
+        </div>
+        <p id="fDist" class="sub"></p>
+        <div class="acoes">
+          <button id="btnUsarGps" type="button" class="btn">Usar meu GPS</button>
+          <button id="btnEscolher" type="button" class="btn">Escolher no mapa</button>
+        </div>
+
+        <h3>Fotos</h3>
+        <div class="acoes">
+          <label class="btn">Tirar foto<input id="fCamera" type="file" accept="image/*" capture="environment" hidden></label>
+          <label class="btn">Da galeria<input id="fGaleria" type="file" accept="image/*" multiple hidden></label>
+        </div>
+        <div id="fFotos" class="fotos"></div>
+        <button id="btnExcluir" type="button" class="perigo">Excluir ponto</button>
+      </div>
+    </form>
+  </div>
+  <div id="toast" role="status" hidden></div>
+</div>
+<div id="impressao"></div>
+
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script src="vendor/exifr.js"></script>
+<script src="vendor/geotiff.bundle.js"></script>
+<script src="vendor/proj4.js"></script>
+<script src="geo.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
