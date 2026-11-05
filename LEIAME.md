@@ -94,6 +94,15 @@ Clique em **Salvar** antes de sair da ficha ou trocar de aplicativo. Ao voltar a
 
 Em **Relatório**, aplique os filtros e gere o PDF ou o CSV. A base completa também fica na Planilha Google.
 
+## Revisão por IA (opcional)
+
+1. Crie uma chave de API em [platform.claude.com](https://platform.claude.com).
+2. No Apps Script, abra **Configurações do projeto > Propriedades do script**.
+3. Adicione a propriedade `IA_CHAVE` com o valor da chave. Nunca coloque essa chave no GitHub.
+4. Na Planilha, a aba `Glossário` é criada na primeira revisão. Preencha `Termo encontrado` e `Usar assim` quando a equipe definir um padrão.
+
+Ao sincronizar, cada ponto salvo é revisado. O texto original fica na ficha, em **Ver texto original**, e pode ser restaurado. Pontos marcados com **Não revisar este ponto com IA** não são enviados.
+
 ## Publicar alterações
 
 Depois de alterar qualquer arquivo, aumente a versão na linha `const VERSAO` do `sw.js` (por exemplo, de `inspecao-v1` para `inspecao-v2`). Sem isso, os aparelhos podem continuar com a versão antiga.

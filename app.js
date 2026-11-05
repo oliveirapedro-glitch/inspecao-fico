@@ -145,7 +145,7 @@ function desenharPontos() {
 async function carregarOrtos() {
   blocosMeta = [];
   for (const o of await dbAll('ortos')) for (const b of o.blocos) blocosMeta.push(b);
-  for (const [, v] of blocosVisiveis) { map.removeLayer(v.layer); URL.revokeObjectURL(v.url); }
+  for (const [, v] of blocosVisiveis) { if (v.layer) { map.removeLayer(v.layer); URL.revokeObjectURL(v.url); } }
   blocosVisiveis.clear();
   atualizarBlocos();
 }
@@ -158,7 +158,7 @@ async function atualizarBlocos() {
     if (visivel && !ativo) {
       blocosVisiveis.set(b.id, { pending: true });
       const blob = await dbGet('ortoBlocos', b.id);
-      if (!blob) { blocosVisiveis.delete(b.id); continue; }
+      if (!blob || !blocosVisiveis.has(b.id)) { blocosVisiveis.delete(b.id); continue; }
       const url = URL.createObjectURL(blob);
       const layer = L.imageOverlay(url, b.bounds, { pane: 'orto' }).addTo(map);
       blocosVisiveis.set(b.id, { layer, url });
@@ -220,7 +220,7 @@ function desenharLista() {
         <div class="meta">${[p.pacote, p.segmento, p.km && 'km ' + p.km].filter(Boolean).map(esc).join(' · ') || 'Sem localização na obra'}</div>
         <div class="meta">${esc(p.status)} · ${esc(p.origem)}${minhaPos && temLoc(p) ? ' · ' + distTxt(Geo.dist([minhaPos.lat, minhaPos.lon], [Number(p.lat), Number(p.lon)])) : ''}</div>
       </div>
-      ${p.dirty ? '<span class="chip">não enviado</span>' : ''}
+      ${p.dirty ? '<span class="chip">não enviado</span>' : (p.iaStatus === 'revisado' ? '<span class="chip ia">IA</span>' : '')}
     </li>`).join('') : '<li class="vazio">Nenhum ponto. Crie um ponto ou importe fotos de drone.</li>';
 }
 function ordemPontos(a, b) {
@@ -270,6 +270,7 @@ function mostrarFicha() {
   $('#fStatus').value = p.status; $('#fLat').value = temLoc(p) ? Number(p.lat).toFixed(8) : ''; $('#fLon').value = temLoc(p) ? Number(p.lon).toFixed(8) : '';
   mostrarUtm();
   $('#btnExcluir').hidden = novoAtual;
+  mostrarIa();
   $('#ficha').hidden = false;
   mostrarEixo(); mostrarDist(); desenharFotos();
 }
@@ -292,6 +293,22 @@ function lerUtmDigitado() {
   localAuto = false;
   $('#fLat').value = r.lat.toFixed(8); $('#fLon').value = r.lon.toFixed(8);
   mostrarEixo(); mostrarDist();
+}
+function mostrarIa() {
+  const p = atual;
+  const originais = [['Resumo', p.resumoOriginal], ['Descrição', p.descricaoOriginal], ['Observação de campo', p.obsOriginal]].filter(x => x[1]);
+  $('#iaCaixa').hidden = p.iaStatus !== 'revisado' || !originais.length;
+  $('#iaOriginal').innerHTML = originais.map(x => `<p><b>${esc(x[0])}:</b> ${esc(x[1])}</p>`).join('');
+  $('#fIaBloq').checked = p.iaBloqueado === '1';
+}
+function restaurarIa() {
+  if (atual.descricaoOriginal) $('#fDescricao').value = atual.descricaoOriginal;
+  if (atual.obsOriginal) $('#fObs').value = atual.obsOriginal;
+  if (atual.resumoOriginal) $('#fResumo').value = atual.resumoOriginal;
+  $('#fIaBloq').checked = true;
+  atual.iaStatus = 'restaurado';
+  $('#iaCaixa').hidden = true;
+  toast('Texto original restaurado. Toque em Salvar para confirmar.', 5000);
 }
 function definirLocal(lat, lon) {
   $('#fLat').value = Number(lat).toFixed(8);
@@ -338,7 +355,8 @@ async function salvarFicha(e) {
   Object.assign(atual, {
     pacote: $('#fPacote').value.trim(), segmento: $('#fSegmento').value.trim(), km: $('#fKm').value.trim(),
     resumo: $('#fResumo').value.trim(), descricao: $('#fDescricao').value.trim(), obsCampo: $('#fObs').value.trim(),
-    status: $('#fStatus').value, lat: l.lat, lon: l.lon, atualizadoPor: S.nome, atualizadoEm: agora(), dirty: 1
+    status: $('#fStatus').value, lat: l.lat, lon: l.lon, atualizadoPor: S.nome, atualizadoEm: agora(), dirty: 1,
+    iaBloqueado: $('#fIaBloq').checked ? '1' : '', iaPendente: $('#fIaBloq').checked ? 0 : 1
   });
   await dbPut('pontos', atual);
   const i = pontos.findIndex(p => p.id === atual.id);
@@ -535,7 +553,7 @@ async function agruparSelecionados() {
     const data = fotos.map(f => f.tiradaEm).filter(Boolean).sort()[0];
     alvo.resumo = nomeInspecao(data, `${fotos.length} foto(s)`);
   }
-  Object.assign(alvo, { atualizadoPor: S.nome, atualizadoEm: stamp, dirty: 1 });
+  Object.assign(alvo, { atualizadoPor: S.nome, atualizadoEm: stamp, dirty: 1, iaPendente: 1 });
   await dbPut('pontos', alvo);
   for (const p of lista.slice(1)) {
     await dbPut('pontos', { ...p, excluido: '1', atualizadoPor: S.nome, atualizadoEm: stamp, dirty: 1 });
@@ -574,7 +592,7 @@ function base64ParaBlob(b64) {
   for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
   return new Blob([u8], { type: 'image/jpeg' });
 }
-const semInternos = o => { const c = { ...o }; delete c.dirty; delete c.blob; return c; };
+const semInternos = o => { const c = { ...o }; delete c.dirty; delete c.blob; delete c.iaPendente; return c; };
 function normalizar(p) {
   return { ...p, lat: p.lat === '' ? '' : Number(p.lat), lon: p.lon === '' ? '' : Number(p.lon) };
 }
@@ -620,6 +638,19 @@ async function sincronizar(manual = true) {
       } catch (e) { falhas++; console.warn(e); }
     }
 
+    // Revisão por IA: uma falha nunca impede a sincronização e é repetida na próxima.
+    const paraRevisar = (await dbAll('pontos')).filter(p => p.iaPendente && !p.dirty && !p.excluido && !(atual && atual.id === p.id));
+    let falhasIa = 0;
+    for (let i = 0; i < paraRevisar.length; i++) {
+      txt.textContent = `Revisando ${i + 1}/${paraRevisar.length}`;
+      try {
+        const r = await api('reviewPoint', { id: paraRevisar[i].id });
+        if (r.situacao === 'falha') { falhasIa++; console.warn(r.erro); continue; }
+        const q = await dbGet('pontos', paraRevisar[i].id);
+        if (q && !q.dirty) await dbPut('pontos', { ...q, iaPendente: 0 });
+      } catch (e) { falhasIa++; console.warn(e); }
+    }
+
     // 2) Recebe o que a equipe enviou
     txt.textContent = 'Recebendo…';
     const d = await api('pull', { since: S.cursor });
@@ -629,7 +660,7 @@ async function sincronizar(manual = true) {
       if (p.excluido) {
         await dbDel('pontos', p.id);
       } else {
-        await dbPut('pontos', { ...normalizar(p), dirty: 0 });
+        await dbPut('pontos', { ...normalizar(p), dirty: 0, iaPendente: local ? local.iaPendente : 0 });
       }
     }
     for (const f of d.photos) {
@@ -657,7 +688,7 @@ async function sincronizar(manual = true) {
     desenharPontos(); desenharLista();
     await dbPut('kv', agora(), 'ultimaSync');
     if (falhas) toast(`Sincronização parcial: ${falhas} foto(s) com falha. Tente de novo.`, 6000);
-    else if (manual) toast('Sincronização concluída.');
+    else if (manual) toast(falhasIa ? `Dados sincronizados. ${falhasIa} revisão(ões) por IA ficou(aram) para a próxima sincronização.` : 'Sincronização concluída.', falhasIa ? 6000 : 3500);
   } catch (e) {
     console.warn(e);
     if (manual) toast('Não foi possível sincronizar: ' + e.message, 6000);
@@ -789,7 +820,7 @@ async function atualizarCatalogo() {
     const k = seg.arquivos.find(a => /\.km[zl]$/i.test(a.nome));
     if (!k) continue;
     const atual = S.eixos.find(e => segChave(e) === segChave(seg));
-    if (atual && atual.arquivoId === k.id && atual.alterado === k.alterado && await dbGet('kv', chaveDesenho(atual))) continue;
+    if (atual && atual.arquivoId === k.id && atual.alterado === k.alterado && atual.versao === 2 && await dbGet('kv', chaveDesenho(atual))) continue;
     try {
       const parsed = await Geo.parseKmz(await arquivoDoDrive(k));
       const eixo = Geo.buildAxis(parsed, { pacote: seg.pacote, segmento: seg.segmento, origem: k.nome });
@@ -960,6 +991,7 @@ function ligar() {
   $('#form').onsubmit = salvarFicha;
   $('#btnFechar').onclick = fecharFicha;
   $('#btnExcluir').onclick = excluirPonto;
+  $('#btnRestaurarIa').onclick = restaurarIa;
   $('#btnUsarGps').onclick = async () => { const p = await posicaoAtual(); if (p) { kmManual = false; localAuto = false; definirLocal(p.lat, p.lon); } else toast('GPS indisponível.'); };
   $('#btnEscolher').onclick = () => { kmManual = false; localAuto = false; iniciarEscolha(); };
   $('#btnCancelaEscolha').onclick = () => concluirEscolha(null);

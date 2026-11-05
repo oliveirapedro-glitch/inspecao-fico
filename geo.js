@@ -58,7 +58,7 @@ const Geo = (() => {
         }).filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
         if (coords.length >= 2) lines.push({ name: nome, coords });
       }
-      const m = /^(\d+)\+(\d{1,3})$/.exec(nome);
+      const m = /^(\d+)\+(\d{1,3})(?:[.,]\d+)?$/.exec(nome);
       if (m) {
         const pt = pm.getElementsByTagName('Point')[0];
         const c = pt && pt.getElementsByTagName('coordinates')[0];
@@ -111,40 +111,74 @@ const Geo = (() => {
     return series.sort((a, b) => b.length - a.length)[0] || [];
   }
 
-  // Escolhe a linha do eixo principal: a que melhor acompanha os rótulos de km.
+  // Encadeia os rótulos do maior para o menor km. Ramais com a mesma numeração ficam de fora,
+  // porque só entra o rótulo cuja distância até o anterior combina com a diferença de km.
+  function cadeiaMarcos(serie) {
+    const porKm = new Map();
+    for (const m of serie) {
+      const k = Math.round(m.km * 1000);
+      if (!porKm.has(k)) porKm.set(k, []);
+      porKm.get(k).push(m);
+    }
+    const kms = [...porKm.keys()].sort((a, b) => b - a);
+    const cadeia = [];
+    let ant = null;
+    for (const k of kms) {
+      const opcoes = porKm.get(k);
+      if (!ant) {
+        if (opcoes.length > 1) continue;
+        ant = opcoes[0]; cadeia.push(ant);
+        continue;
+      }
+      const delta = (ant.km - k / 1000) * 1000;
+      if (delta > 1000) break; // fim do trecho contínuo do eixo principal
+      let melhor = null, erroMelhor = Infinity;
+      for (const o of opcoes) {
+        const erro = Math.abs(dist([ant.lat, ant.lon], [o.lat, o.lon]) - delta);
+        if (erro < erroMelhor) { melhor = o; erroMelhor = erro; }
+      }
+      if (melhor && erroMelhor <= 60 + delta * 0.05) { ant = melhor; cadeia.push(melhor); }
+    }
+    return cadeia.reverse();
+  }
+
+  // Usa a linha do projeto quando uma só acompanha o eixo inteiro. Se o eixo estiver
+  // dividido em várias linhas no CAD, o traçado passa a ser definido pelos próprios rótulos.
   function buildAxis(parsed, info = {}) {
     const abertas = parsed.lines
       .map(l => ({ coords: l.coords, len: lengthOf(l.coords) }))
       .filter(l => dist(l.coords[0], l.coords[l.coords.length - 1]) > l.len * 0.1)
       .sort((a, b) => b.len - a.len);
-    const serie = maiorSerie(parsed.marks);
-    let melhor = null;
-    if (serie.length >= 3) {
-      const extensao = (serie[serie.length - 1].km - serie[0].km) * 1000;
+    const cadeia = cadeiaMarcos(maiorSerie(parsed.marks));
+    const base = { versao: 2, pacote: info.pacote || '', segmento: info.segmento || '', origem: info.origem || parsed.arquivo };
+    if (cadeia.length >= 3) {
+      const extensao = (cadeia[cadeia.length - 1].km - cadeia[0].km) * 1000;
+      let melhor = null;
       for (const l of abertas.slice(0, 80)) {
-        if (l.len < extensao * 0.7) continue;
-        const proj = serie.map(m => ({ km: m.km, ...project(l.coords, m.lat, m.lon) }));
+        if (l.len < extensao * 0.9) continue;
+        const proj = cadeia.map(m => ({ km: m.km, ...project(l.coords, m.lat, m.lon) }));
         for (const sinal of [1, -1]) {
-          const base = mediana(proj.map(p => p.km * 1000 - sinal * p.along));
-          const bons = proj.filter(p => p.offset < 60 && Math.abs(p.km * 1000 - sinal * p.along - base) < 60);
-          const erro = bons.reduce((t, p) => t + Math.abs(p.km * 1000 - sinal * p.along - base), 0) / (bons.length || 1);
-          if (!melhor || bons.length > melhor.bons.length || (bons.length === melhor.bons.length && erro < melhor.erro)) {
-            melhor = { l, bons, erro, sinal };
-          }
+          const ref = mediana(proj.map(p => p.km * 1000 - sinal * p.along));
+          const bons = proj.filter(p => p.offset < 60 && Math.abs(p.km * 1000 - sinal * p.along - ref) < 60);
+          const erro = bons.reduce((t, p) => t + Math.abs(p.km * 1000 - sinal * p.along - ref), 0) / (bons.length || 1);
+          if (!melhor || bons.length > melhor.bons.length || (bons.length === melhor.bons.length && erro < melhor.erro)) melhor = { l, bons, erro, sinal };
         }
       }
-    }
-    const base = { pacote: info.pacote || '', segmento: info.segmento || '', origem: info.origem || parsed.arquivo };
-    if (melhor && melhor.bons.length >= Math.max(3, serie.length * 0.5)) {
-      const cal = melhor.bons.map(p => [p.along, p.km]).sort((a, b) => a[0] - b[0]);
-      return { ...base, coords: melhor.l.coords, cal, sinal: melhor.sinal, marcos: cal.length, erro: melhor.erro, comprimento: melhor.l.len };
+      if (melhor && melhor.bons.length >= cadeia.length * 0.85) {
+        const cal = melhor.bons.map(p => [p.along, p.km]).sort((a, b) => a[0] - b[0]);
+        return { ...base, coords: melhor.l.coords, cal, sinal: melhor.sinal, marcos: cal.length, erro: melhor.erro, comprimento: melhor.l.len, fonte: 'linha' };
+      }
+      const coords = cadeia.map(m => [m.lat, m.lon]);
+      let along = 0;
+      const cal = cadeia.map((m, i) => { if (i) along += dist(coords[i - 1], coords[i]); return [along, m.km]; });
+      return { ...base, coords, cal, sinal: 1, marcos: cal.length, erro: null, comprimento: along, fonte: 'rotulos' };
     }
     // Sem rótulos utilizáveis: maior linha aberta e km inicial informado no nome do arquivo.
     const linha = abertas[0];
     if (!linha) throw new Error('O arquivo não contém uma linha de eixo aberta.');
     const m = /km[-_ ]?(\d+)\+(\d{1,3})/i.exec(parsed.arquivo || '');
     const ini = m ? Number(m[1]) + Number(m[2]) / 1000 : 0;
-    return { ...base, coords: linha.coords, cal: [[0, ini]], sinal: 1, marcos: 0, erro: null, comprimento: linha.len, semMarcos: !m };
+    return { ...base, coords: linha.coords, cal: [[0, ini]], sinal: 1, marcos: 0, erro: null, comprimento: linha.len, semMarcos: !m, fonte: 'arquivo' };
   }
 
   function kmNaPosicao(eixo, along) {
@@ -362,5 +396,5 @@ const Geo = (() => {
     return { bounds: [[s, w], [n, e]], pieces, resolucao };
   }
 
-  return { dist, toUtm, fromUtm, parseKmz, buildAxis, locate, formatKm, importOrtho, separarOrto, lengthOf };
+  return { dist, cadeiaMarcos, toUtm, fromUtm, parseKmz, buildAxis, locate, formatKm, importOrtho, separarOrto, lengthOf };
 })();

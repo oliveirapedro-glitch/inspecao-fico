@@ -67,6 +67,7 @@ h3 { font-size: 16px; margin: 18px 0 2px; color: var(--azul); }
 .bola { width: 14px; height: 14px; border-radius: 50%; flex: none; margin-top: 4px; border: 2px solid #fff; box-shadow: 0 0 0 1px #0006; }
 .s-averificar { background: #e08a00; } .s-verificado { background: #1e8e3e; } .s-requeracao { background: #c5221f; }
 .chip { font-size: 12px; color: #4d3a00; background: #fff3cd; border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
+.chip.ia { background: #e4effb; color: #0a4f9e; }
 .pin { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 5px #0009; }
 .eu { width: 16px; height: 16px; border-radius: 50%; background: #1a73e8; border: 3px solid #fff; box-shadow: 0 0 0 1px #0007; }
 .simples li { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--linha); border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-size: 14px; }
@@ -84,6 +85,10 @@ h3 { font-size: 16px; margin: 18px 0 2px; color: var(--azul); }
 .foto div.pe { display: flex; justify-content: space-between; align-items: center; padding: 2px 7px 4px; font-size: 12px; color: var(--sub); }
 .foto button { border: 0; background: none; color: var(--verm); font: inherit; padding: 4px 0; }
 
+.iaCaixa { background: #e4effb; border-radius: 8px; padding: 10px 12px; margin: 10px 0; font-size: 14px; }
+.iaCaixa summary { cursor: pointer; margin-top: 4px; }
+.iaCaixa p { margin: 6px 0; white-space: pre-wrap; }
+label.check.iaBloq { padding-top: 4px; font-weight: 400; }
 #dlgImport { position: fixed; inset: 0; z-index: 1500; background: #0007; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .dlg { background: #fff; border-radius: 12px; padding: 16px; width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 10px; }
 .dlg p { margin: 0 0 4px; font-weight: 600; }
