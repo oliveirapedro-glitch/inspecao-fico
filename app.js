@@ -44,6 +44,7 @@ let pontos = [];
 let atual = null;       // ponto aberto na ficha
 let novoAtual = false;  // ficha de ponto ainda não salvo
 let kmManual = false;
+let localAuto = false;   // local veio do GPS do aparelho, não de uma escolha do usuário
 let minhaPos = null;
 let sincronizando = false;
 
@@ -235,15 +236,17 @@ async function abrirNovo() {
   atual = novoPonto();
   novoAtual = true;
   kmManual = false;
+  localAuto = false;
   mostrarFicha();
   const pos = await posicaoAtual();
-  if (atual && novoAtual && pos && $('#fLat').value === '') definirLocal(pos.lat, pos.lon);
+  if (atual && novoAtual && pos && $('#fLat').value === '') { definirLocal(pos.lat, pos.lon); localAuto = true; }
 }
 function abrirPonto(id) {
   const p = pontos.find(x => x.id === id);
   if (!p) return;
   atual = { ...p };
   novoAtual = false;
+  localAuto = false;
   kmManual = !!p.km;
   mostrarFicha();
 }
@@ -348,28 +351,36 @@ async function lerGpsFoto(file) {
   try { const g = await exifr.gps(file); if (g && Number.isFinite(g.latitude) && Number.isFinite(g.longitude)) return { lat: g.latitude, lon: g.longitude }; } catch (_) {}
   return null;
 }
-async function criarFoto(file, pontoId) {
+async function lerDataFoto(file) {
+  try { const e = await exifr.parse(file); if (e && e.DateTimeOriginal instanceof Date && !isNaN(e.DateTimeOriginal)) return e.DateTimeOriginal.toISOString(); } catch (_) {}
+  return null;
+}
+async function criarFoto(file, pontoId, daCamera = false) {
   const gps = await lerGpsFoto(file);
+  const data = await lerDataFoto(file);
   const blob = await reduzirImagem(file);
   const foto = {
-    id: uuid(), pontoId, fase: S.etapa, legenda: '', lat: gps ? gps.lat : (minhaPos ? minhaPos.lat : ''), lon: gps ? gps.lon : (minhaPos ? minhaPos.lon : ''),
-    tiradaEm: agora(), criadoPor: S.nome, atualizadoEm: agora(), driveId: '', url: '', excluido: '', dirty: 1, blob
+    id: uuid(), pontoId, fase: S.etapa, legenda: '', lat: gps ? gps.lat : (daCamera && minhaPos ? minhaPos.lat : ''), lon: gps ? gps.lon : (daCamera && minhaPos ? minhaPos.lon : ''),
+    tiradaEm: data || agora(), criadoPor: S.nome, atualizadoEm: agora(), driveId: '', url: '', excluido: '', dirty: 1, blob
   };
   await dbPut('fotos', foto);
   return { foto, gps };
 }
-async function adicionarFotos(files) {
+async function adicionarFotos(files, daCamera = false) {
   if (!atual) return;
-  let erros = 0;
+  let erros = 0, semLocal = 0;
   for (const file of files) {
     try {
-      const { gps } = await criarFoto(file, atual.id);
-      if (gps && !lerLocal()) definirLocal(gps.lat, gps.lon);
+      const { gps } = await criarFoto(file, atual.id, daCamera);
+      // A foto antiga indica onde o ponto está; o GPS atual do aparelho pode estar em outro lugar.
+      if (gps && (!lerLocal() || localAuto)) { definirLocal(gps.lat, gps.lon); localAuto = false; }
+      if (!gps && !daCamera) semLocal++;
     } catch (e) { erros++; toast(e.message); }
   }
   await desenharFotos();
   atualizarPendentes();
-  if (!erros) toast('Foto guardada. Salve o ponto ao terminar.');
+  if (semLocal && localAuto) toast('Foto sem coordenadas. Use “Escolher no mapa” para indicar o local do ponto.', 7000);
+  else if (!erros) toast('Foto guardada. Salve o ponto ao terminar.');
 }
 let urlsFicha = [];
 async function desenharFotos() {
@@ -807,12 +818,12 @@ function ligar() {
   $('#form').onsubmit = salvarFicha;
   $('#btnFechar').onclick = fecharFicha;
   $('#btnExcluir').onclick = excluirPonto;
-  $('#btnUsarGps').onclick = async () => { const p = await posicaoAtual(); if (p) { kmManual = false; definirLocal(p.lat, p.lon); } else toast('GPS indisponível.'); };
-  $('#btnEscolher').onclick = () => { kmManual = false; iniciarEscolha(); };
+  $('#btnUsarGps').onclick = async () => { const p = await posicaoAtual(); if (p) { kmManual = false; localAuto = false; definirLocal(p.lat, p.lon); } else toast('GPS indisponível.'); };
+  $('#btnEscolher').onclick = () => { kmManual = false; localAuto = false; iniciarEscolha(); };
   $('#btnCancelaEscolha').onclick = () => concluirEscolha(null);
   $('#fKm').oninput = () => { kmManual = true; };
-  $('#fLat').onchange = $('#fLon').onchange = () => { mostrarEixo(); mostrarDist(); };
-  for (const id of ['#fCamera', '#fGaleria']) $(id).onchange = e => { const f = [...e.target.files]; e.target.value = ''; if (f.length) adicionarFotos(f); };
+  $('#fLat').onchange = $('#fLon').onchange = () => { localAuto = false; mostrarEixo(); mostrarDist(); };
+  for (const id of ['#fCamera', '#fGaleria']) $(id).onchange = e => { const f = [...e.target.files]; e.target.value = ''; if (f.length) adicionarFotos(f, id === '#fCamera'); };
   $('#fFotos').addEventListener('change', e => {
     if (e.target.classList.contains('legenda')) editarFoto(e.target.closest('.foto').dataset.id, { legenda: e.target.value });
   });
