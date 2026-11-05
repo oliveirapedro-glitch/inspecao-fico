@@ -103,6 +103,18 @@ Em **Relatório**, aplique os filtros e gere o PDF ou a planilha em Excel, com a
 
 Em **Pontos**, toque em **Revisar com IA** quando quiser revisar os pontos pendentes. O texto original fica na ficha, em **Ver texto original**, e pode ser restaurado. Pontos marcados com **Não revisar este ponto com IA** não são enviados.
 
+## Usuários e perfis
+
+Em **Ajustes > Usuários**, o administrador cria uma chave para cada pessoa. A chave aparece uma única vez.
+
+| Perfil | Consultar e exportar | Criar e editar | Excluir | Usar a IA |
+|---|---|---|---|---|
+| Administrador | Sim | Sim | Sim | Sim |
+| Inspetor | Sim | Sim | Só os próprios pontos | Não |
+| Consulta | Sim | Não | Não | Não |
+
+A chave criada em `configurar` é a chave mestra de administrador. Não a distribua. Se uma pessoa sair da equipe, toque em **Desativar**.
+
 ## Publicar alterações
 
 Depois de alterar qualquer arquivo, aumente a versão na linha `const VERSAO` do `sw.js` (por exemplo, de `inspecao-v1` para `inspecao-v2`). Sem isso, os aparelhos podem continuar com a versão antiga.

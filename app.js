@@ -5,6 +5,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const agora = () => new Date().toISOString();
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
 const dataBR = iso => iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+const VERSAO_APP = 'Versão 07';
 const STATUS_COR = { 'A verificar': 's-averificar', 'Verificado': 's-verificado', 'Requer ação': 's-requeracao' };
 
 /* ---------- Banco local ---------- */
@@ -39,7 +40,7 @@ const dbDel = (s, k) => req(s, 'readwrite', o => o.delete(k));
 const fotosDoPonto = id => req('fotos', 'readonly', o => o.index('pontoId').getAll(id));
 
 /* ---------- Estado ---------- */
-const S = { nome: '', url: '', chave: '', etapa: 'Pré-inspeção', cursor: 0, eixos: [], catalogo: [] };
+const S = { nome: '', url: '', chave: '', etapa: 'Pré-inspeção', cursor: 0, eixos: [], catalogo: [], segsOcultos: [], perfil: '', nomeServidor: '', chaveMestra: false };
 let pontos = [];
 let atual = null;       // ponto aberto na ficha
 let novoAtual = false;  // ficha de ponto ainda não salvo
@@ -94,6 +95,7 @@ function iniciarMapa() {
     if (map.distance(lim.getNorthEast(), lim.getSouthWest()) <= 100 || map.getZoom() >= 19) c.spiderfy();
     else c.zoomToBounds({ padding: [50, 50] });
   });
+  criarFiltroSeg();
   L.control.layers(null, { 'Projeto (KMZ)': camadaProjeto, 'Rótulos de km': camadaKm, 'Eixo principal': camadaEixo, 'Local de cada foto': camadaFotos }, { position: 'topright' }).addTo(map);
   map.on('moveend', atualizarBlocos);
   const rotulos = () => map.getContainer().classList.toggle('sem-km', map.getZoom() < 15);
@@ -115,19 +117,82 @@ const temLoc = p => p.lat !== '' && p.lon !== '' && Number.isFinite(Number(p.lat
 function desenharEixo() {
   if (!camadaEixo) return;
   camadaEixo.clearLayers();
-  for (const e of S.eixos) L.polyline(e.coords, { color: '#f7890a', weight: 4 }).bindTooltip([e.pacote, e.segmento].filter(Boolean).join(' · ') || 'Eixo').addTo(camadaEixo);
+  for (const e of S.eixos.filter(segVisivel)) L.polyline(e.coords, { color: '#f7890a', weight: 4 }).bindTooltip([e.pacote, e.segmento].filter(Boolean).join(' · ') || 'Eixo').addTo(camadaEixo);
+}
+const chaveSeg = x => `${x.pacote || ''}|${x.segmento || ''}`;
+const segVisivel = x => !S.segsOcultos.includes(typeof x === 'string' ? x : chaveSeg(x));
+function listaSegmentos() {
+  const mapa = new Map();
+  for (const x of [...S.catalogo, ...S.eixos, ...pontos]) mapa.set(chaveSeg(x), { pacote: x.pacote || '', segmento: x.segmento || '' });
+  const cmp = (a, b) => a.localeCompare(b, 'pt-BR', { numeric: true });
+  return [...mapa.values()].sort((a, b) => cmp(a.pacote, b.pacote) || cmp(a.segmento, b.segmento));
+}
+function desenharFiltroSeg() {
+  const botao = $('#btnFiltroSeg');
+  if (!botao) return;
+  const segs = listaSegmentos();
+  const ativos = segs.filter(segVisivel).length;
+  botao.textContent = `Segmentos (${ativos}/${segs.length})`;
+  const pacotes = [...new Set(segs.map(x => x.pacote))];
+  $('#listaFiltroSeg').innerHTML = !segs.length ? '<p class="sub">Nenhum segmento carregado.</p>' : pacotes.map(pc => {
+    const doPacote = segs.filter(x => x.pacote === pc);
+    const marcado = doPacote.every(segVisivel);
+    return `<div class="fsPacote"><label><input type="checkbox" data-pacote="${esc(pc)}"${marcado ? ' checked' : ''}> <b>${esc(pc || 'Sem pacote')}</b></label>` +
+      doPacote.map(x => `<label class="fsSeg"><input type="checkbox" data-seg="${esc(chaveSeg(x))}"${segVisivel(x) ? ' checked' : ''}> ${esc(x.segmento || 'Sem segmento')}</label>`).join('') + '</div>';
+  }).join('');
+}
+async function aplicarFiltroSeg(novos) {
+  S.segsOcultos = novos;
+  await salvarS('segsOcultos');
+  desenharFiltroSeg();
+  desenharEixo();
+  desenharPontos();
+  await desenharProjeto();
+  await carregarOrtos();
+}
+function criarFiltroSeg() {
+  const Ctrl = L.Control.extend({ onAdd() {
+    const d = L.DomUtil.create('div', 'filtroSeg leaflet-bar');
+    d.innerHTML = `<button id="btnFiltroSeg" type="button" aria-expanded="false">Segmentos</button>
+      <div id="painelFiltroSeg" hidden>
+        <div class="fsAcoes"><button id="fsTodos" type="button">Todos</button><button id="fsNenhum" type="button">Nenhum</button></div>
+        <div id="listaFiltroSeg"></div>
+      </div>`;
+    L.DomEvent.disableClickPropagation(d);
+    L.DomEvent.disableScrollPropagation(d);
+    return d;
+  } });
+  new Ctrl({ position: 'topleft' }).addTo(map);
+  $('#btnFiltroSeg').onclick = () => {
+    const p = $('#painelFiltroSeg');
+    p.hidden = !p.hidden;
+    $('#btnFiltroSeg').setAttribute('aria-expanded', String(!p.hidden));
+  };
+  $('#fsTodos').onclick = () => aplicarFiltroSeg([]);
+  $('#fsNenhum').onclick = () => aplicarFiltroSeg(listaSegmentos().map(chaveSeg));
+  $('#listaFiltroSeg').addEventListener('change', e => {
+    const c = e.target;
+    let ocultos = new Set(S.segsOcultos);
+    const alvos = c.dataset.seg !== undefined ? [c.dataset.seg] : listaSegmentos().filter(x => x.pacote === c.dataset.pacote).map(chaveSeg);
+    for (const k of alvos) { if (c.checked) ocultos.delete(k); else ocultos.add(k); }
+    aplicarFiltroSeg([...ocultos]);
+  });
+  desenharFiltroSeg();
 }
 const chaveDesenho = x => `desenho|${x.pacote}|${x.segmento}`;
 async function salvarDesenho(eixo, parsed) {
   await dbPut('kv', { grupos: parsed.desenho, marcos: parsed.marks }, chaveDesenho(eixo));
 }
+let tokenProjeto = 0;
 async function desenharProjeto() {
   if (!camadaProjeto) return;
+  const token = ++tokenProjeto;
   camadaProjeto.clearLayers();
   camadaKm.clearLayers();
   const renderer = L.canvas({ pane: 'projeto', padding: 0.2 });
-  for (const e of S.eixos) {
+  for (const e of S.eixos.filter(segVisivel)) {
     const d = await dbGet('kv', chaveDesenho(e));
+    if (token !== tokenProjeto) return; // o filtro mudou durante a leitura
     if (!d) continue;
     for (const [cor, linhas] of Object.entries(d.grupos)) {
       L.polyline(linhas, { color: cor, weight: 1.2, opacity: 0.95, interactive: false, renderer }).addTo(camadaProjeto);
@@ -139,7 +204,7 @@ async function desenharProjeto() {
 }
 async function desenharFotosMapa() {
   if (!camadaFotos) return;
-  const ids = new Set(pontos.map(p => p.id));
+  const ids = new Set(pontos.filter(segVisivel).map(p => p.id));
   const fotos = (await dbAll('fotos')).filter(f => !f.excluido && ids.has(f.pontoId) && f.lat !== '' && f.lon !== '' && Number.isFinite(Number(f.lat)));
   camadaFotos.clearLayers();
   for (const f of fotos) {
@@ -149,16 +214,18 @@ async function desenharFotosMapa() {
 function desenharPontos() {
   if (!camadaPontos) return;
   desenharFotosMapa();
+  desenharFiltroSeg();
   camadaPontos.clearLayers();
   for (const p of pontos) {
-    if (!temLoc(p)) continue;
+    if (!temLoc(p) || !segVisivel(p)) continue;
     const icon = L.divIcon({ className: '', html: `<div class="pin ${STATUS_COR[p.status] || 's-averificar'}"></div>`, iconSize: [22, 22], iconAnchor: [11, 11] });
     L.marker([Number(p.lat), Number(p.lon)], { icon, title: p.resumo }).on('click', () => abrirPonto(p.id)).addTo(camadaPontos);
   }
 }
 async function carregarOrtos() {
   blocosMeta = [];
-  for (const o of await dbAll('ortos')) for (const b of o.blocos) blocosMeta.push(b);
+  // Mapa importado direto no aparelho (sem chave) fica sempre visível.
+  for (const o of await dbAll('ortos')) if (!o.chave || segVisivel(o.chave)) for (const b of o.blocos) blocosMeta.push(b);
   for (const [, v] of blocosVisiveis) { if (v.layer) { map.removeLayer(v.layer); URL.revokeObjectURL(v.url); } }
   blocosVisiveis.clear();
   atualizarBlocos();
@@ -203,6 +270,60 @@ function posicaoAtual() {
       p => { minhaPos = { lat: p.coords.latitude, lon: p.coords.longitude, prec: p.coords.accuracy }; res(minhaPos); },
       () => res(minhaPos), { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 });
   });
+}
+
+/* ---------- Perfis ---------- */
+const perfil = () => S.perfil || 'Inspetor';
+const eAdmin = () => perfil() === 'Administrador';
+const podeEditar = () => perfil() !== 'Consulta';
+const podeExcluirPonto = p => eAdmin() || (perfil() === 'Inspetor' && p.criadoPor === S.nome);
+async function registrarUsuario(u) {
+  if (!u) return;
+  const mudou = S.perfil !== u.perfil || S.nomeServidor !== (u.nome || '');
+  S.perfil = u.perfil; S.nomeServidor = u.nome || ''; S.chaveMestra = !!u.mestra;
+  if (u.nome) S.nome = u.nome;
+  await Promise.all(['perfil', 'nomeServidor', 'chaveMestra', 'nome'].map(salvarS));
+  if (mudou) { aplicarPerfil(); desenharLista(); }
+}
+function aplicarPerfil() {
+  const edita = podeEditar();
+  for (const id of ['#btnNovoMapa', '#btnNovoLista', '#lblImportar', '#btnAgrupar']) $(id).hidden = !edita;
+  $('#btnRevisarIa').hidden = !eAdmin();
+  $('#secUsuarios').hidden = !eAdmin();
+  $('#cfgNome').readOnly = !!S.nomeServidor;
+  $('#perfilInfo').textContent = S.perfil ? `Perfil: ${S.perfil}${S.nomeServidor ? ' · ' + S.nomeServidor : ' · chave mestra'}` : '';
+}
+function aplicarPerfilFicha() {
+  const edita = podeEditar();
+  $('#form').querySelectorAll('input, select, textarea').forEach(el => { el.disabled = !edita; });
+  $('#form').querySelectorAll('.soEdicao').forEach(el => { el.hidden = !edita; });
+  for (const id of ['#btnUsarGps', '#btnEscolher', '#btnRestaurarIa']) $(id).hidden = !edita;
+  $('#btnExcluir').hidden = novoAtual || !podeExcluirPonto(atual);
+}
+let usuariosLista = [];
+async function carregarUsuarios() {
+  if (!eAdmin() || !navigator.onLine || !S.url) return;
+  try {
+    usuariosLista = (await api('listUsers')).usuarios;
+    $('#uLista').innerHTML = usuariosLista.length ? usuariosLista.map(u => `<li class="usuario" data-id="${esc(u.id)}">
+      <span class="uTopo">${esc(u.nome)} <small>${u.ativo === 'Sim' ? 'Ativo' : 'Desativado'}</small></span>
+      <select class="uMudaPerfil" aria-label="Perfil de ${esc(u.nome)}">${['Administrador', 'Inspetor', 'Consulta'].map(x => `<option${x === u.perfil ? ' selected' : ''}>${x}</option>`).join('')}</select>
+      <button type="button" class="btn uAtivar">${u.ativo === 'Sim' ? 'Desativar' : 'Ativar'}</button>
+      <button type="button" class="btn uNovaChave">Nova chave</button></li>`).join('') : '<li>Nenhum usuário criado.</li>';
+  } catch (e) { console.warn(e); $('#uLista').innerHTML = `<li>Não foi possível carregar: ${esc(e.message)}</li>`; }
+}
+function mostrarChaveNova(nome, chave) {
+  $('#uChaveTit').textContent = `Chave de ${nome}`;
+  $('#uChaveTxt').value = chave;
+  $('#uChave').hidden = false;
+}
+async function criarUsuario() {
+  try {
+    const r = await api('addUser', { nome: $('#uNome').value.trim(), perfil: $('#uPerfil').value });
+    $('#uNome').value = '';
+    mostrarChaveNova(r.nome, r.chave);
+    carregarUsuarios();
+  } catch (e) { toast(e.message, 6000); }
 }
 
 /* ---------- Navegação ---------- */
@@ -283,8 +404,8 @@ function mostrarFicha() {
   $('#fResumo').value = p.resumo; $('#fDescricao').value = p.descricao; $('#fObs').value = p.obsCampo;
   $('#fStatus').value = p.status; $('#fLat').value = temLoc(p) ? Number(p.lat).toFixed(8) : ''; $('#fLon').value = temLoc(p) ? Number(p.lon).toFixed(8) : '';
   mostrarUtm();
-  $('#btnExcluir').hidden = novoAtual;
   mostrarIa();
+  aplicarPerfilFicha();
   $('#ficha').hidden = false;
   mostrarEixo(); mostrarDist(); desenharFotos();
 }
@@ -364,6 +485,7 @@ async function fecharFicha() {
 }
 async function salvarFicha(e) {
   e.preventDefault();
+  if (!podeEditar()) return;
   const l = lerLocal();
   if (!l) { toast('Defina a localização antes de salvar.'); return; }
   Object.assign(atual, {
@@ -381,6 +503,7 @@ async function salvarFicha(e) {
   toast('Ponto salvo neste aparelho.');
 }
 async function excluirPonto() {
+  if (!podeExcluirPonto(atual)) return;
   if (!confirm('Excluir este ponto e as fotos dele?')) return;
   const stamp = agora();
   atual.excluido = '1'; atual.dirty = 1; atual.atualizadoEm = stamp; atual.atualizadoPor = S.nome;
@@ -500,8 +623,8 @@ async function desenharFotos() {
     let visual = '<div class="falta">Foto ainda não baixada. Sincronize com internet.</div>';
     if (f.blob) { const u = URL.createObjectURL(f.blob); urlsFicha.push(u); visual = `<img src="${u}" alt="Abrir foto">`; }
     return `<div class="foto${f.id === idPrincipal ? ' principal' : ''}" data-id="${esc(f.id)}">${visual}
-      <input class="legenda" value="${esc(f.legenda)}" placeholder="Legenda" aria-label="Legenda">
-      <div class="pe"><span>${esc(f.fase)}<br>${esc(utmTxt(f.lat, f.lon)) || 'Sem coordenadas'}</span></div><div class="pe acoesFoto"><button type="button" class="estrela">${f.id === idPrincipal ? '★ Principal' : '☆ Definir principal'}</button><button type="button" class="tirar">Remover</button></div></div>`;
+      <input class="legenda" value="${esc(f.legenda)}" placeholder="Legenda" aria-label="Legenda"${podeEditar() ? '' : ' disabled'}>
+      <div class="pe"><span>${esc(f.fase)}<br>${esc(utmTxt(f.lat, f.lon)) || 'Sem coordenadas'}</span></div><div class="pe acoesFoto">${podeEditar() ? `<button type="button" class="estrela">${f.id === idPrincipal ? '★ Principal' : '☆ Definir principal'}</button>` : (f.id === idPrincipal ? '<span>★ Principal</span>' : '<span></span>')}${(podeEditar() && (eAdmin() || f.criadoPor === S.nome || atual.criadoPor === S.nome)) ? '<button type="button" class="tirar">Remover</button>' : ''}</div></div>`;
   }).join('');
 }
 async function editarFoto(id, alt) {
@@ -582,6 +705,7 @@ function atualizarBarraGrupo() {
 async function agruparSelecionados() {
   const lista = pontos.filter(p => selecionadosGrupo.has(p.id)).sort((a, b) => (a.criadoEm || '').localeCompare(b.criadoEm || ''));
   if (lista.length < 2) return;
+  if (!lista.every(podeExcluirPonto)) { toast('Você só pode agrupar os próprios pontos.', 5000); return; }
   if (!confirm(`Agrupar ${lista.length} pontos em um único apontamento? As fotos e as coordenadas de cada foto serão mantidas.`)) return;
   const stamp = agora();
   const alvo = { ...lista[0] };
@@ -703,14 +827,23 @@ async function sincronizar(manual = true) {
   if (!navigator.onLine) { if (manual) toast('Sem internet. Os dados continuam salvos neste aparelho.'); return; }
   sincronizando = true;
   const txt = $('#syncTxt');
-  let falhas = 0;
+  let falhas = 0, recusas = 0;
   try {
     // 1) Envia o que foi feito neste aparelho
     const locais = (await dbAll('pontos')).filter(p => p.dirty);
     for (let i = 0; i < locais.length; i++) {
       txt.textContent = `Pontos ${i + 1}/${locais.length}`;
       const p = locais[i];
-      const r = await api('pushPoint', { point: semInternos(p) });
+      let r;
+      try {
+        r = await api('pushPoint', { point: semInternos(p) });
+      } catch (e) {
+        if (!/Sem permissão/.test(e.message)) throw e;
+        // Devolve a exclusão recusada; a edição fica guardada e o aviso aparece ao final.
+        if (p.excluido) await dbPut('pontos', { ...p, excluido: '', dirty: 0 });
+        recusas++;
+        continue;
+      }
       if (r.conflict) await dbPut('pontos', { ...normalizar(r.point), dirty: 0 });
       else if (p.excluido) await dbDel('pontos', p.id);
       else await dbPut('pontos', { ...p, dirty: 0 });
@@ -733,6 +866,7 @@ async function sincronizar(manual = true) {
     // 2) Recebe o que a equipe enviou
     txt.textContent = 'Recebendo…';
     const d = await api('pull', { since: S.cursor });
+    await registrarUsuario(d.usuario);
     for (const p of d.points) {
       const local = await dbGet('pontos', p.id);
       if (local && local.dirty) continue;
@@ -766,7 +900,8 @@ async function sincronizar(manual = true) {
     pontos = (await dbAll('pontos')).filter(p => !p.excluido);
     desenharPontos(); desenharLista();
     await dbPut('kv', agora(), 'ultimaSync');
-    if (falhas) toast(`Sincronização parcial: ${falhas} foto(s) com falha. Tente de novo.`, 6000);
+    if (recusas) toast(`${recusas} alteração(ões) recusada(s) pelo seu perfil de acesso.`, 7000);
+    else if (falhas) toast(`Sincronização parcial: ${falhas} foto(s) com falha. Tente de novo.`, 6000);
     else if (manual) toast('Sincronização concluída.');
   } catch (e) {
     console.warn(e);
@@ -793,7 +928,11 @@ async function atualizarAviso() {
 function opcoes(sel, vals, todos) {
   const atualV = sel.value;
   sel.innerHTML = `<option value="">${todos}</option>` + [...new Set(vals.filter(Boolean))].sort().map(v => `<option>${esc(v)}</option>`).join('');
-  sel.value = atualV;
+  sel.value = [...sel.options].some(o => o.value === atualV) ? atualV : '';
+}
+function atualizarSegmentosRelatorio() {
+  const pc = $('#repPacote').value;
+  opcoes($('#repSegmento'), pontos.filter(p => !pc || p.pacote === pc).map(p => p.segmento), 'Todos');
 }
 function selecionados() {
   const pc = $('#repPacote').value, sg = $('#repSegmento').value, st = $('#repStatus').value, or = $('#repOrigem').value;
@@ -805,7 +944,7 @@ function selecionados() {
 }
 function prepararRelatorio() {
   opcoes($('#repPacote'), pontos.map(p => p.pacote), 'Todos');
-  opcoes($('#repSegmento'), pontos.map(p => p.segmento), 'Todos');
+  atualizarSegmentosRelatorio();
   resumoRelatorio();
 }
 function resumoRelatorio() {
@@ -1007,6 +1146,7 @@ async function atualizarCatalogo() {
     } catch (e) { console.warn(e); toast(`Eixo de ${seg.segmento}: ${e.message}`, 6000); }
   }
   if (mudou) { await salvarS('eixos'); desenharEixo(); await desenharProjeto(); }
+  desenharFiltroSeg();
 }
 function arquivosMapa(seg) {
   const a = seg.arquivos;
@@ -1062,6 +1202,9 @@ async function mostrarAjustes() {
     txt = `Espaço usado: ${(u.usage / 1048576).toFixed(0)} MB. `;
   }
   const ult = await dbGet('kv', 'ultimaSync');
+  $('#versaoApp').textContent = VERSAO_APP;
+  aplicarPerfil();
+  carregarUsuarios();
   $('#espaco').textContent = txt + (ult ? `Última sincronização: ${dataBR(ult)}.` : 'Ainda não sincronizado.');
 }
 async function salvarConfig() {
@@ -1069,7 +1212,7 @@ async function salvarConfig() {
   await Promise.all(['nome', 'url', 'chave'].map(salvarS));
   atualizarAviso();
   if (!S.url) { toast('Configuração salva.'); return; }
-  try { await api('ping'); toast('Conexão confirmada.'); sincronizar(false); }
+  try { const r = await api('ping'); await registrarUsuario(r.usuario); aplicarPerfil(); $('#cfgNome').value = S.nome; toast('Conexão confirmada.'); carregarUsuarios(); sincronizar(false); }
   catch (e) { toast('Falha na conexão: ' + e.message, 6000); }
 }
 async function importarEixoLocal(file) {
@@ -1079,7 +1222,7 @@ async function importarEixoLocal(file) {
   S.eixos = S.eixos.filter(e => segChave(e) !== segChave(eixo) || !eixo.pacote).concat(eixo);
   await salvarS('eixos');
   await salvarDesenho(eixo, parsed);
-  desenharEixo(); await desenharProjeto(); mostrarAjustes(); enquadrar();
+  desenharEixo(); desenharFiltroSeg(); await desenharProjeto(); mostrarAjustes(); enquadrar();
   toast(eixo.marcos ? `Eixo reconhecido com ${eixo.marcos} rótulos de km.` : 'Eixo sem rótulos de km: confira o km calculado.', 6000);
 }
 async function importarOrto(arquivos, meta = {}) {
@@ -1169,6 +1312,33 @@ function ligar() {
   $('#btnExcluir').onclick = excluirPonto;
   $('#btnRestaurarIa').onclick = restaurarIa;
   $('#btnRevisarIa').onclick = revisarComIa;
+  $('#btnAddUser').onclick = criarUsuario;
+  $('#btnCopiarChave').onclick = async () => {
+    const c = $('#uChaveTxt');
+    try { await navigator.clipboard.writeText(c.value); } catch (_) { c.select(); document.execCommand('copy'); }
+    toast('Chave copiada.');
+  };
+  $('#uLista').addEventListener('change', async e => {
+    if (!e.target.classList.contains('uMudaPerfil')) return;
+    try { await api('updateUser', { id: e.target.closest('li').dataset.id, perfil: e.target.value }); toast('Perfil alterado.'); }
+    catch (err) { toast(err.message, 6000); }
+    carregarUsuarios();
+  });
+  $('#uLista').addEventListener('click', async e => {
+    const li = e.target.closest('li[data-id]');
+    if (!li) return;
+    const u = usuariosLista.find(x => x.id === li.dataset.id);
+    try {
+      if (e.target.classList.contains('uAtivar')) {
+        await api('updateUser', { id: u.id, ativo: u.ativo === 'Sim' ? 'Não' : 'Sim' });
+      } else if (e.target.classList.contains('uNovaChave')) {
+        if (!confirm(`Gerar nova chave para ${u.nome}? A chave atual deixará de funcionar.`)) return;
+        const r = await api('updateUser', { id: u.id, novaChave: true });
+        mostrarChaveNova(r.nome, r.chave);
+      } else return;
+      carregarUsuarios();
+    } catch (err) { toast(err.message, 6000); }
+  });
   $('#visorFechar').onclick = fecharVisor;
   $('#visorAnt').onclick = () => { if (visorPos > 0) { visorPos--; mostrarVisor(); } };
   $('#visorProx').onclick = () => { if (visorPos < visorLista.length - 1) { visorPos++; mostrarVisor(); } };
@@ -1199,6 +1369,7 @@ function ligar() {
     desenharFotos(); atualizarPendentes();
   });
 
+  $('#repPacote').addEventListener('change', atualizarSegmentosRelatorio);
   ['#repPacote', '#repSegmento', '#repStatus', '#repOrigem', '#repDe', '#repAte'].forEach(s => { $(s).onchange = resumoRelatorio; });
   $('#btnPdf').onclick = gerarPdf;
   $('#btnExcel').onclick = gerarExcel;
@@ -1225,6 +1396,7 @@ function ligar() {
   await carregar();
   ligar();
   mostrarEtapa();
+  aplicarPerfil();
   iniciarMapa();
   abrirAba('tabMapa');
   iniciarGps();

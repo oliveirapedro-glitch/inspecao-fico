@@ -42,7 +42,7 @@
       </div>
       <div class="acoes" id="acoesPontos">
         <button id="btnNovoLista" type="button" class="prim">+ Novo ponto</button>
-        <label class="btn">Importar fotos com GPS<input id="fotosDrone" type="file" accept="image/*" multiple hidden></label>
+        <label class="btn" id="lblImportar">Importar fotos com GPS<input id="fotosDrone" type="file" accept="image/*" multiple hidden></label>
         <button id="btnAgrupar" type="button" class="btn">Agrupar pontos</button>
         <button id="btnRevisarIa" type="button" class="btn">Revisar com IA</button>
       </div>
@@ -78,6 +78,24 @@
       <label>Endereço do backend (Apps Script)<input id="cfgUrl" inputmode="url" placeholder="https://script.google.com/macros/s/…/exec"></label>
       <label>Chave de acesso<input id="cfgChave" type="password" autocomplete="off"></label>
       <div class="acoes"><button id="btnSalvarCfg" type="button" class="prim">Salvar e testar</button></div>
+      <p id="perfilInfo" class="sub"></p>
+
+      <div id="secUsuarios" hidden>
+        <h2>Usuários</h2>
+        <p class="sub">Cada pessoa recebe uma chave própria. A chave aparece só uma vez.</p>
+        <div class="grade">
+          <label>Nome<input id="uNome" autocomplete="off"></label>
+          <label>Perfil<select id="uPerfil"><option>Inspetor</option><option>Consulta</option><option>Administrador</option></select></label>
+        </div>
+        <div class="acoes"><button id="btnAddUser" type="button" class="prim">Criar usuário</button></div>
+        <div id="uChave" class="iaCaixa" hidden>
+          <strong id="uChaveTit"></strong>
+          <input id="uChaveTxt" readonly>
+          <div class="acoes"><button id="btnCopiarChave" type="button" class="btn">Copiar chave</button></div>
+          <p class="sub">Guarde e envie à pessoa agora. Depois, ela não poderá ser vista de novo.</p>
+        </div>
+        <ul id="uLista" class="simples"></ul>
+      </div>
 
       <h2>Mapas por segmento</h2>
       <p class="sub">Os eixos são carregados do Drive ao sincronizar. Baixe o mapa dos segmentos que vai percorrer, com internet, antes de ir a campo.</p>
@@ -104,6 +122,7 @@
       <h2>Segurança dos dados</h2>
       <p id="espaco" class="sub"></p>
       <div class="acoes"><button id="btnBackup" type="button" class="btn">Baixar backup (ZIP)</button></div>
+      <p id="versaoApp" class="sub"></p>
     </section>
   </main>
 
@@ -119,7 +138,7 @@
       <div class="fichaTopo">
         <button id="btnFechar" type="button" class="link">Voltar</button>
         <strong id="fichaTitulo"></strong>
-        <button type="submit" class="prim">Salvar</button>
+        <button type="submit" class="prim soEdicao" id="btnSalvarFicha">Salvar</button>
       </div>
       <div class="fichaCorpo">
         <div class="grade tres">
@@ -157,8 +176,8 @@
 
         <h3>Fotos</h3>
         <div class="acoes">
-          <label class="btn">Tirar foto<input id="fCamera" type="file" accept="image/*" capture="environment" hidden></label>
-          <label class="btn">Da galeria<input id="fGaleria" type="file" accept="image/*" multiple hidden></label>
+          <label class="btn soEdicao">Tirar foto<input id="fCamera" type="file" accept="image/*" capture="environment" hidden></label>
+          <label class="btn soEdicao">Da galeria<input id="fGaleria" type="file" accept="image/*" multiple hidden></label>
         </div>
         <div id="fFotos" class="fotos"></div>
         <button id="btnExcluir" type="button" class="perigo">Excluir ponto</button>

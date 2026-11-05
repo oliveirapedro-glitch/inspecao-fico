@@ -37,6 +37,86 @@ function configurar() {
   Logger.log('Configuração concluída. Chave de acesso: ' + chave);
 }
 
+/* ---------- Usuários e perfis ---------- */
+var CAMPOS_USUARIO = ['id', 'nome', 'perfil', 'ativo', 'chaveHash', 'criadoEm'];
+var PERFIS = ['Administrador', 'Inspetor', 'Consulta'];
+
+function hashChave_(chave) {
+  return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(chave), Utilities.Charset.UTF_8));
+}
+
+function abaUsuarios_() {
+  var plan = SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty('PLANILHA'));
+  var aba = plan.getSheetByName('Usuários');
+  if (!aba) {
+    aba = plan.insertSheet('Usuários');
+    aba.getRange(1, 1, 1, CAMPOS_USUARIO.length).setValues([CAMPOS_USUARIO]);
+  }
+  return aba;
+}
+
+// A chave do backend (CHAVE) continua como chave mestra de Administrador.
+function autenticar_(chave) {
+  var props = PropertiesService.getScriptProperties();
+  if (!chave) throw new Error('Chave de acesso inválida.');
+  if (chave === props.getProperty('CHAVE')) return { nome: '', perfil: 'Administrador', mestra: true };
+  var hash = hashChave_(chave);
+  var u = linhas_(abaUsuarios_(), CAMPOS_USUARIO).filter(function (x) { return x.chaveHash === hash; })[0];
+  if (!u) throw new Error('Chave de acesso inválida.');
+  if (u.ativo !== 'Sim') throw new Error('Acesso desativado. Fale com o administrador.');
+  if (PERFIS.indexOf(u.perfil) < 0) throw new Error('Perfil inválido. Fale com o administrador.');
+  return { nome: u.nome, perfil: u.perfil };
+}
+
+function exigirAdmin_(usuario) {
+  if (usuario.perfil !== 'Administrador') throw new Error('Sem permissão: ação exclusiva do administrador.');
+}
+
+function exigirEdicao_(usuario) {
+  if (usuario.perfil === 'Consulta') throw new Error('Sem permissão: perfil somente para consulta.');
+}
+
+function listUsers_() {
+  return { ok: true, usuarios: linhas_(abaUsuarios_(), CAMPOS_USUARIO).map(function (u) {
+    return { id: u.id, nome: u.nome, perfil: u.perfil, ativo: u.ativo };
+  }) };
+}
+
+function addUser_(nome, perfil) {
+  nome = String(nome || '').trim();
+  if (!nome) throw new Error('Informe o nome.');
+  if (PERFIS.indexOf(perfil) < 0) throw new Error('Perfil inválido.');
+  return comTrava_(function () {
+    var aba = abaUsuarios_();
+    var repetido = linhas_(aba, CAMPOS_USUARIO).some(function (u) { return u.nome.toLowerCase() === nome.toLowerCase(); });
+    if (repetido) throw new Error('Já existe um usuário com esse nome.');
+    var chave = Utilities.getUuid();
+    gravar_(aba, CAMPOS_USUARIO, { id: Utilities.getUuid(), nome: nome, perfil: perfil, ativo: 'Sim', chaveHash: hashChave_(chave), criadoEm: new Date().toISOString() });
+    return { ok: true, nome: nome, chave: chave };
+  });
+}
+
+function updateUser_(id, perfil, ativo, novaChave) {
+  return comTrava_(function () {
+    var aba = abaUsuarios_();
+    var u = linhas_(aba, CAMPOS_USUARIO).filter(function (x) { return x.id === String(id); })[0];
+    if (!u) throw new Error('Usuário não encontrado.');
+    if (perfil) {
+      if (PERFIS.indexOf(perfil) < 0) throw new Error('Perfil inválido.');
+      u.perfil = perfil;
+    }
+    if (ativo === 'Sim' || ativo === 'Não') u.ativo = ativo;
+    var chave = '';
+    if (novaChave) {
+      chave = Utilities.getUuid();
+      u.chaveHash = hashChave_(chave);
+    }
+    var linha = u._linha;
+    gravar_(aba, CAMPOS_USUARIO, limpar_(u), linha);
+    return { ok: true, nome: u.nome, chave: chave };
+  });
+}
+
 function pastaFilha_(pai, nome) {
   var it = pai.getFoldersByName(nome);
   return it.hasNext() ? it.next() : pai.createFolder(nome);
@@ -51,16 +131,31 @@ function doPost(e) {
     var req = JSON.parse(e.postData.contents);
     var props = PropertiesService.getScriptProperties();
     if (!props.getProperty('CHAVE')) throw new Error('Backend não configurado: execute configurar().');
-    if (req.key !== props.getProperty('CHAVE')) throw new Error('Chave de acesso inválida.');
+    var usuario = autenticar_(req.key);
     switch (req.action) {
-      case 'ping': return resposta_({ ok: true });
-      case 'pull': return resposta_(pull_(req));
-      case 'pushPoint': return resposta_(pushPoint_(req.point));
-      case 'reviewPoint': return resposta_(reviewPoint_(req.id));
-      case 'pushPhoto': return resposta_(pushPhoto_(req.photo, req.base64));
+      case 'ping': return resposta_({ ok: true, usuario: usuario });
+      case 'pull': {
+        var dados = pull_(req);
+        dados.usuario = usuario;
+        return resposta_(dados);
+      }
+      case 'pushPoint': return resposta_(pushPoint_(req.point, usuario));
+      case 'reviewPoint':
+        exigirAdmin_(usuario);
+        return resposta_(reviewPoint_(req.id));
+      case 'pushPhoto': return resposta_(pushPhoto_(req.photo, req.base64, usuario));
       case 'getPhoto': return resposta_(getPhoto_(req.driveId));
       case 'listMaps': return resposta_(listMaps_());
       case 'getFile': return resposta_(getFile_(req.id));
+      case 'listUsers':
+        exigirAdmin_(usuario);
+        return resposta_(listUsers_());
+      case 'addUser':
+        exigirAdmin_(usuario);
+        return resposta_(addUser_(req.nome, req.perfil));
+      case 'updateUser':
+        exigirAdmin_(usuario);
+        return resposta_(updateUser_(req.id, req.perfil, req.ativo, req.novaChave));
       default: throw new Error('Ação desconhecida.');
     }
   } catch (err) {
@@ -117,11 +212,26 @@ function pull_(req) {
   };
 }
 
-function pushPoint_(p) {
+function pushPoint_(p, usuario) {
   if (!p || !p.id) throw new Error('Ponto sem identificador.');
+  exigirEdicao_(usuario);
   return comTrava_(function () {
     var aba = aba_('Pontos');
     var atual = linhas_(aba, CAMPOS_PONTO).filter(function (x) { return x.id === String(p.id); })[0];
+    if (usuario.perfil !== 'Administrador') {
+      if (atual && atual.excluido === '1') throw new Error('Sem permissão: ponto excluído.');
+      if (String(p.excluido) === '1' && !(atual && atual.criadoPor === usuario.nome)) {
+        if (atual) throw new Error('Sem permissão: só é possível excluir os próprios pontos.');
+      }
+    }
+    // A autoria vem da chave de acesso, não do nome digitado no aparelho.
+    if (usuario.nome) {
+      p.atualizadoPor = usuario.nome;
+      p.criadoPor = atual ? atual.criadoPor : usuario.nome;
+    } else if (atual) {
+      p.criadoPor = atual.criadoPor;
+    }
+    if (atual) p.criadoEm = atual.criadoEm;
     if (atual && String(atual.atualizadoEm) > String(p.atualizadoEm)) {
       var linhaIgnorada = limpar_(atual);
       return { ok: true, conflict: true, point: linhaIgnorada };
@@ -132,10 +242,16 @@ function pushPoint_(p) {
   });
 }
 
-function pushPhoto_(f, base64) {
+function pushPhoto_(f, base64, usuario) {
   if (!f || !f.id) throw new Error('Foto sem identificador.');
+  exigirEdicao_(usuario);
   var aba = aba_('Fotos');
   var atual = linhas_(aba, CAMPOS_FOTO).filter(function (x) { return x.id === String(f.id); })[0];
+  if (usuario.perfil !== 'Administrador' && atual && String(f.excluido) === '1' && atual.criadoPor !== usuario.nome) {
+    var ponto = linhas_(aba_('Pontos'), CAMPOS_PONTO).filter(function (x) { return x.id === String(atual.pontoId); })[0];
+    if (!ponto || ponto.criadoPor !== usuario.nome) throw new Error('Sem permissão: só é possível excluir fotos próprias.');
+  }
+  if (usuario.nome) f.criadoPor = atual ? atual.criadoPor : usuario.nome;
   var driveId = atual ? atual.driveId : '';
   var url = atual ? atual.url : '';
   if (!driveId) {
