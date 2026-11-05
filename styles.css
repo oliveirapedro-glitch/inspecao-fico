@@ -89,6 +89,21 @@ h3 { font-size: 16px; margin: 18px 0 2px; color: var(--azul); }
 .iaCaixa summary { cursor: pointer; margin-top: 4px; }
 .iaCaixa p { margin: 6px 0; white-space: pre-wrap; }
 label.check.iaBloq { padding-top: 4px; font-weight: 400; }
+#visor { position: fixed; inset: 0; z-index: 1800; background: #05101f; color: #fff; display: flex; flex-direction: column; }
+.visorTopo, .visorPe { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; font-size: 13px; }
+.visorTopo { padding-top: calc(10px + env(safe-area-inset-top)); }
+.visorPe { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+.visorTopo span { text-align: right; }
+#visor button { background: #ffffff1f; color: #fff; border: 0; border-radius: 8px; padding: 10px 12px; font: inherit; font-weight: 600; }
+#visor button:disabled { opacity: .35; }
+#visorArea { flex: 1; min-height: 0; overflow: auto; display: flex; touch-action: pinch-zoom pan-x pan-y; }
+#visorImg { margin: auto; max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; }
+#visorArea.zoom #visorImg { max-width: none; max-height: none; cursor: zoom-out; }
+.foto img { cursor: zoom-in; }
+.foto .acoesFoto { display: flex; justify-content: space-between; gap: 6px; }
+.foto .estrela { color: var(--azul); font-weight: 600; }
+.foto.principal { border: 2px solid var(--laranja); }
+.grupoPin { width: 34px; height: 34px; border-radius: 50%; background: var(--azul); color: #fff; border: 3px solid #fff; box-shadow: 0 1px 6px #000a; display: flex; align-items: center; justify-content: center; font: 700 14px system-ui, sans-serif; }
 #dlgImport { position: fixed; inset: 0; z-index: 1500; background: #0007; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .dlg { background: #fff; border-radius: 12px; padding: 16px; width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 10px; }
 .dlg p { margin: 0 0 4px; font-weight: 600; }

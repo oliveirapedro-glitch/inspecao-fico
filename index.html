@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Inspeção FICO">
 <link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="vendor/MarkerCluster.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -43,6 +44,7 @@
         <button id="btnNovoLista" type="button" class="prim">+ Novo ponto</button>
         <label class="btn">Importar fotos com GPS<input id="fotosDrone" type="file" accept="image/*" multiple hidden></label>
         <button id="btnAgrupar" type="button" class="btn">Agrupar pontos</button>
+        <button id="btnRevisarIa" type="button" class="btn">Revisar com IA</button>
       </div>
       <div class="acoes" id="barraGrupo" hidden>
         <span id="grupoTxt" class="sub"></span>
@@ -66,7 +68,7 @@
       <p id="repResumo" class="sub"></p>
       <div class="acoes">
         <button id="btnPdf" type="button" class="prim">Gerar relatório (PDF)</button>
-        <button id="btnCsv" type="button" class="btn">Exportar planilha (CSV)</button>
+        <button id="btnExcel" type="button" class="btn">Exportar planilha (Excel)</button>
       </div>
     </section>
 
@@ -163,6 +165,18 @@
       </div>
     </form>
   </div>
+  <div id="visor" hidden>
+    <div class="visorTopo">
+      <button id="visorFechar" type="button">Fechar</button>
+      <span id="visorInfo"></span>
+    </div>
+    <div id="visorArea"><img id="visorImg" alt="Foto do apontamento"></div>
+    <div class="visorPe">
+      <button id="visorAnt" type="button">‹ Anterior</button>
+      <button id="visorPonto" type="button">Abrir apontamento</button>
+      <button id="visorProx" type="button">Próxima ›</button>
+    </div>
+  </div>
   <div id="dlgImport" hidden>
     <div class="dlg">
       <p id="dlgTexto"></p>
@@ -176,7 +190,9 @@
 <div id="impressao"></div>
 
 <script src="vendor/leaflet.js"></script>
+<script src="vendor/leaflet.markercluster.js"></script>
 <script src="vendor/jszip.min.js"></script>
+<script src="vendor/exceljs.min.js"></script>
 <script src="vendor/exifr.js"></script>
 <script src="vendor/geotiff.bundle.js"></script>
 <script src="vendor/proj4.js"></script>

@@ -78,8 +78,22 @@ function iniciarMapa() {
   camadaProjeto = L.layerGroup().addTo(map);
   camadaKm = L.layerGroup().addTo(map);
   camadaEixo = L.layerGroup().addTo(map);
-  camadaFotos = L.layerGroup().addTo(map);
-  camadaPontos = L.layerGroup().addTo(map);
+  camadaFotos = L.layerGroup(); // desligada por padrão; ligue no botão de camadas
+  camadaPontos = L.markerClusterGroup({
+    maxClusterRadius: 26,
+    zoomToBoundsOnClick: false,
+    showCoverageOnHover: false,
+    spiderfyOnMaxZoom: false,
+    spiderfyDistanceMultiplier: 1.6,
+    animate: false,
+    iconCreateFunction: c => L.divIcon({ className: '', html: `<div class="grupoPin">${c.getChildCount()}</div>`, iconSize: [34, 34], iconAnchor: [17, 17] })
+  }).addTo(map);
+  // Grupo próximo se abre para a escolha; grupo espalhado aproxima o mapa.
+  camadaPontos.on('clusterclick', e => {
+    const c = e.layer, lim = c.getBounds();
+    if (map.distance(lim.getNorthEast(), lim.getSouthWest()) <= 100 || map.getZoom() >= 19) c.spiderfy();
+    else c.zoomToBounds({ padding: [50, 50] });
+  });
   L.control.layers(null, { 'Projeto (KMZ)': camadaProjeto, 'Rótulos de km': camadaKm, 'Eixo principal': camadaEixo, 'Local de cada foto': camadaFotos }, { position: 'topright' }).addTo(map);
   map.on('moveend', atualizarBlocos);
   const rotulos = () => map.getContainer().classList.toggle('sem-km', map.getZoom() < 15);
@@ -129,7 +143,7 @@ async function desenharFotosMapa() {
   const fotos = (await dbAll('fotos')).filter(f => !f.excluido && ids.has(f.pontoId) && f.lat !== '' && f.lon !== '' && Number.isFinite(Number(f.lat)));
   camadaFotos.clearLayers();
   for (const f of fotos) {
-    L.circleMarker([Number(f.lat), Number(f.lon)], { radius: 5, color: '#fff', weight: 1.5, fillColor: '#0f6cbd', fillOpacity: 1 }).on('click', () => abrirPonto(f.pontoId)).addTo(camadaFotos);
+    L.circleMarker([Number(f.lat), Number(f.lon)], { radius: 5, color: '#fff', weight: 1.5, fillColor: '#0f6cbd', fillOpacity: 1 }).on('click', () => abrirVisor(f.pontoId, f.id, true)).addTo(camadaFotos);
   }
 }
 function desenharPontos() {
@@ -443,16 +457,51 @@ async function adicionarFotos(files, daCamera = false) {
   if (semLocal && localAuto) toast('Foto sem coordenadas. Use “Escolher no mapa” para indicar o local do ponto.', 7000);
   else if (!erros) toast('Foto guardada. Salve o ponto ao terminar.');
 }
+function fotosOrdenadas(fotos, principal) {
+  const o = fotos.filter(f => !f.excluido).sort((a, b) => (a.tiradaEm || '').localeCompare(b.tiradaEm || ''));
+  const i = o.findIndex(f => f.id === principal);
+  if (i > 0) o.unshift(o.splice(i, 1)[0]);
+  return o;
+}
+let urlVisor = null, visorLista = [], visorPos = 0, visorPontoId = null;
+async function abrirVisor(pontoId, fotoId, comPonto = false) {
+  const p = (atual && atual.id === pontoId) ? atual : pontos.find(x => x.id === pontoId);
+  visorLista = fotosOrdenadas(await fotosDoPonto(pontoId), p && p.fotoPrincipal);
+  visorPos = Math.max(0, visorLista.findIndex(f => f.id === fotoId));
+  visorPontoId = pontoId;
+  $('#visorPonto').hidden = !comPonto;
+  $('#visor').hidden = false;
+  mostrarVisor();
+}
+function mostrarVisor() {
+  const f = visorLista[visorPos];
+  if (urlVisor) URL.revokeObjectURL(urlVisor);
+  urlVisor = f && f.blob ? URL.createObjectURL(f.blob) : null;
+  $('#visorArea').classList.remove('zoom');
+  $('#visorImg').src = urlVisor || '';
+  $('#visorImg').hidden = !urlVisor;
+  const partes = [`Foto ${visorPos + 1} de ${visorLista.length}`, f && f.legenda, f && dataBR(f.tiradaEm), f && utmTxt(f.lat, f.lon)];
+  $('#visorInfo').textContent = urlVisor ? partes.filter(Boolean).join(' · ') : 'Foto ainda não baixada. Sincronize com internet.';
+  $('#visorAnt').disabled = visorPos <= 0;
+  $('#visorProx').disabled = visorPos >= visorLista.length - 1;
+}
+function fecharVisor() {
+  $('#visor').hidden = true;
+  $('#visorImg').src = '';
+  if (urlVisor) URL.revokeObjectURL(urlVisor);
+  urlVisor = null;
+}
 let urlsFicha = [];
 async function desenharFotos() {
   urlsFicha.forEach(URL.revokeObjectURL); urlsFicha = [];
-  const fotos = (await fotosDoPonto(atual.id)).filter(f => !f.excluido);
+  const fotos = fotosOrdenadas(await fotosDoPonto(atual.id), atual.fotoPrincipal);
+  const idPrincipal = fotos.length ? fotos[0].id : '';
   $('#fFotos').innerHTML = fotos.map(f => {
     let visual = '<div class="falta">Foto ainda não baixada. Sincronize com internet.</div>';
-    if (f.blob) { const u = URL.createObjectURL(f.blob); urlsFicha.push(u); visual = `<img src="${u}" alt="">`; }
-    return `<div class="foto" data-id="${esc(f.id)}">${visual}
+    if (f.blob) { const u = URL.createObjectURL(f.blob); urlsFicha.push(u); visual = `<img src="${u}" alt="Abrir foto">`; }
+    return `<div class="foto${f.id === idPrincipal ? ' principal' : ''}" data-id="${esc(f.id)}">${visual}
       <input class="legenda" value="${esc(f.legenda)}" placeholder="Legenda" aria-label="Legenda">
-      <div class="pe"><span>${esc(f.fase)}<br>${esc(utmTxt(f.lat, f.lon)) || 'Sem coordenadas'}</span><button type="button" class="tirar">Remover</button></div></div>`;
+      <div class="pe"><span>${esc(f.fase)}<br>${esc(utmTxt(f.lat, f.lon)) || 'Sem coordenadas'}</span></div><div class="pe acoesFoto"><button type="button" class="estrela">${f.id === idPrincipal ? '★ Principal' : '☆ Definir principal'}</button><button type="button" class="tirar">Remover</button></div></div>`;
   }).join('');
 }
 async function editarFoto(id, alt) {
@@ -596,7 +645,50 @@ const semInternos = o => { const c = { ...o }; delete c.dirty; delete c.blob; de
 function normalizar(p) {
   return { ...p, lat: p.lat === '' ? '' : Number(p.lat), lon: p.lon === '' ? '' : Number(p.lon) };
 }
+let revisando = false;
+async function atualizarBotaoIa() {
+  if (revisando) return;
+  const n = (await dbAll('pontos')).filter(p => p.iaPendente && !p.excluido).length;
+  const b = $('#btnRevisarIa');
+  b.textContent = n ? `Revisar com IA (${n})` : 'Revisar com IA';
+  b.disabled = !n;
+}
+// A revisão só roda neste botão. Uma falha nunca altera nem apaga os dados.
+async function revisarComIa() {
+  if (revisando || sincronizando) return;
+  if (!navigator.onLine) { toast('A revisão por IA precisa de internet.'); return; }
+  revisando = true;
+  const b = $('#btnRevisarIa');
+  b.disabled = true;
+  let feitos = 0, ultimoErro = '', seguidas = 0, semIa = false;
+  try {
+    b.textContent = 'Enviando dados…';
+    await sincronizar(false);
+    const lista = (await dbAll('pontos')).filter(p => p.iaPendente && !p.dirty && !p.excluido);
+    for (let i = 0; i < lista.length; i++) {
+      b.textContent = `Revisando ${i + 1}/${lista.length}`;
+      try {
+        const r = await api('reviewPoint', { id: lista[i].id });
+        if (r.situacao === 'sem-ia') { semIa = true; break; }
+        if (r.situacao === 'falha') { ultimoErro = r.erro; seguidas++; if (seguidas >= 2) break; continue; }
+        seguidas = 0;
+        feitos++;
+        const q = await dbGet('pontos', lista[i].id);
+        if (q && !q.dirty) await dbPut('pontos', { ...q, iaPendente: 0 });
+      } catch (e) { ultimoErro = e.message; seguidas++; if (seguidas >= 2) break; }
+    }
+    b.textContent = 'Recebendo revisões…';
+    await sincronizar(false);
+    if (semIa) toast('A IA ainda não está configurada no backend.', 6000);
+    else if (ultimoErro) toast(`Revisão interrompida: ${ultimoErro} ${feitos} ponto(s) concluído(s). Os demais continuam pendentes.`, 8000);
+    else toast(`${feitos} ponto(s) revisado(s).`);
+  } finally {
+    revisando = false;
+    atualizarBotaoIa();
+  }
+}
 async function atualizarPendentes() {
+  atualizarBotaoIa();
   const nP = (await dbAll('pontos')).filter(p => p.dirty).length;
   const nF = (await dbAll('fotos')).filter(f => f.dirty).length;
   const n = nP + nF;
@@ -638,19 +730,6 @@ async function sincronizar(manual = true) {
       } catch (e) { falhas++; console.warn(e); }
     }
 
-    // Revisão por IA: uma falha nunca impede a sincronização e é repetida na próxima.
-    const paraRevisar = (await dbAll('pontos')).filter(p => p.iaPendente && !p.dirty && !p.excluido && !(atual && atual.id === p.id));
-    let falhasIa = 0;
-    for (let i = 0; i < paraRevisar.length; i++) {
-      txt.textContent = `Revisando ${i + 1}/${paraRevisar.length}`;
-      try {
-        const r = await api('reviewPoint', { id: paraRevisar[i].id });
-        if (r.situacao === 'falha') { falhasIa++; console.warn(r.erro); continue; }
-        const q = await dbGet('pontos', paraRevisar[i].id);
-        if (q && !q.dirty) await dbPut('pontos', { ...q, iaPendente: 0 });
-      } catch (e) { falhasIa++; console.warn(e); }
-    }
-
     // 2) Recebe o que a equipe enviou
     txt.textContent = 'Recebendo…';
     const d = await api('pull', { since: S.cursor });
@@ -688,7 +767,7 @@ async function sincronizar(manual = true) {
     desenharPontos(); desenharLista();
     await dbPut('kv', agora(), 'ultimaSync');
     if (falhas) toast(`Sincronização parcial: ${falhas} foto(s) com falha. Tente de novo.`, 6000);
-    else if (manual) toast(falhasIa ? `Dados sincronizados. ${falhasIa} revisão(ões) por IA ficou(aram) para a próxima sincronização.` : 'Sincronização concluída.', falhasIa ? 6000 : 3500);
+    else if (manual) toast('Sincronização concluída.');
   } catch (e) {
     console.warn(e);
     if (manual) toast('Não foi possível sincronizar: ' + e.message, 6000);
@@ -746,7 +825,7 @@ async function gerarPdf() {
   ${s.map(p => `<tr><td>${esc(p.codigo)}</td><td>${esc(p.pacote)}</td><td>${esc(p.segmento)}</td><td>${esc(p.km)}</td><td>${esc(p.resumo)}</td><td>${esc(p.status)}</td></tr>`).join('')}
   </tbody></table>`;
   for (const p of s) {
-    const fotos = (await fotosDoPonto(p.id)).filter(f => !f.excluido);
+    const fotos = fotosOrdenadas(await fotosDoPonto(p.id), p.fotoPrincipal);
     const figs = fotos.map(f => {
       if (!f.blob) return `<figure><figcaption>Foto não disponível neste aparelho. ${esc(f.legenda)}</figcaption></figure>`;
       const u = URL.createObjectURL(f.blob); urls.push(u);
@@ -788,8 +867,105 @@ function csvDe(lista) {
     return cols.map(c => cel(c in extra ? extra[c] : p[c])).join(';');
   })].join('\r\n');
 }
-function gerarCsv() {
-  baixar(new Blob([csvDe(selecionados())], { type: 'text/csv;charset=utf-8' }), `inspecao-fico-${agora().slice(0, 10)}.csv`);
+function miniatura(blob, maxL = 320, maxA = 213) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(maxL / img.naturalWidth, maxA / img.naturalHeight, 1);
+      const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+      // O dobro de pixels mantém a foto nítida ao ampliar no Excel.
+      const c = document.createElement('canvas');
+      c.width = w * 2; c.height = h * 2;
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      const b64 = c.toDataURL('image/jpeg', 0.8).split(',')[1];
+      c.width = c.height = 0;
+      res({ b64, w, h });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('foto')); };
+    img.src = url;
+  });
+}
+const AZUL_XLS = 'FF0A4F9E';
+async function gerarExcel() {
+  const lista = selecionados();
+  if (!lista.length) { toast('Nenhum ponto nos filtros escolhidos.'); return; }
+  const botao = $('#btnExcel');
+  botao.disabled = true;
+  try {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = S.nome || 'Inspeção FICO';
+    wb.created = new Date();
+    const ws = wb.addWorksheet('Inspeção', {
+      views: [{ state: 'frozen', ySplit: 4 }],
+      pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: .3, right: .3, top: .4, bottom: .4, header: .2, footer: .2 } }
+    });
+    const colunas = [
+      ['Código', 'codigo', 17], ['Pacote', 'pacote', 10], ['Segmento', 'segmento', 11], ['KM', 'km', 10],
+      ['Resumo', 'resumo', 30], ['Descrição', 'descricao', 50], ['Observação de campo', 'obsCampo', 42], ['Status', 'status', 13], ['Origem', 'origem', 13],
+      ['Zona UTM', 'utmZona', 8], ['E (m)', 'utmE', 12], ['N (m)', 'utmN', 13],
+      ['Criado por', 'criadoPor', 16], ['Criado em', 'criadoEm', 16], ['Atualizado por', 'atualizadoPor', 16], ['Atualizado em', 'atualizadoEm', 16], ['Imagem', 'imagem', 46]
+    ];
+    ws.columns = colunas.map(c => ({ width: c[2] }));
+    const ultima = colunas.length;
+    ws.mergeCells(1, 1, 1, ultima);
+    Object.assign(ws.getCell(1, 1), { value: $('#repTitulo').value, font: { bold: true, size: 16, color: { argb: AZUL_XLS } } });
+    ws.mergeCells(2, 1, 2, ultima);
+    const filtros = [['Pacote', '#repPacote'], ['Segmento', '#repSegmento'], ['Status', '#repStatus'], ['Origem', '#repOrigem']].map(f => $(f[1]).value && `${f[0]}: ${$(f[1]).value}`).filter(Boolean);
+    Object.assign(ws.getCell(2, 1), { value: `Emitido em ${dataBR(agora())}${S.nome ? ' por ' + S.nome : ''} · ${lista.length} ponto(s) · Coordenadas: UTM, SIRGAS 2000${filtros.length ? ' · ' + filtros.join(' · ') : ''}`, font: { color: { argb: 'FF526377' } } });
+    const cab = ws.getRow(4);
+    cab.values = colunas.map(c => c[0]);
+    cab.height = 32;
+    const borda = { style: 'thin', color: { argb: 'FFCBD6E2' } };
+    const bordas = { top: borda, left: borda, bottom: borda, right: borda };
+    cab.eachCell(c => {
+      c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_XLS } };
+      c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      c.border = bordas;
+    });
+    ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: ultima } };
+    const corStatus = { 'A verificar': 'FFFFF3CD', 'Verificado': 'FFD9F2E0', 'Requer ação': 'FFFBDAD7' };
+    const ALTURA_FOTO_PT = 165;
+    for (let i = 0; i < lista.length; i++) {
+      botao.textContent = `Gerando ${i + 1}/${lista.length}`;
+      const p = lista[i];
+      const fotos = fotosOrdenadas(await fotosDoPonto(p.id), p.fotoPrincipal).filter(f => f.blob);
+      const u = temLoc(p) ? Geo.toUtm(Number(p.lat), Number(p.lon)) : null;
+      const linha = ws.getRow(5 + i);
+      const valor = {
+        utmZona: u ? u.zonaTexto : '', utmE: u ? Math.round(u.e * 100) / 100 : '', utmN: u ? Math.round(u.n * 100) / 100 : '',
+        criadoEm: dataBR(p.criadoEm), atualizadoEm: dataBR(p.atualizadoEm), imagem: fotos.length ? '' : 'Sem foto disponível neste aparelho'
+      };
+      linha.values = colunas.map(c => c[1] in valor ? valor[c[1]] : (p[c[1]] || ''));
+      linha.eachCell({ includeEmpty: true }, (c, n) => {
+        c.alignment = { vertical: 'top', wrapText: true };
+        c.border = bordas;
+        if (colunas[n - 1][1] === 'utmE' || colunas[n - 1][1] === 'utmN') c.numFmt = '0.00';
+      });
+      if (corStatus[p.status]) linha.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: corStatus[p.status] } };
+      const linhasTexto = Math.max(Math.ceil((p.descricao || '').length / 55), Math.ceil((p.obsCampo || '').length / 46), Math.ceil((p.resumo || '').length / 32), 1);
+      linha.height = Math.min(409, Math.max(fotos.length ? ALTURA_FOTO_PT : 30, linhasTexto * 15 + 6));
+      if (fotos.length) {
+        try {
+          const m = await miniatura(fotos[0].blob);
+          const id = wb.addImage({ base64: m.b64, extension: 'jpeg' });
+          ws.addImage(id, { tl: { col: ultima - 1 + 0.03, row: 4 + i + 0.03 }, ext: { width: m.w, height: m.h }, editAs: 'oneCell' });
+        } catch (_) { linha.getCell(ultima).value = 'Não foi possível incluir a foto'; }
+      }
+    }
+    botao.textContent = 'Finalizando…';
+    const buf = await wb.xlsx.writeBuffer();
+    baixar(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `inspecao-fico-${agora().slice(0, 10)}.xlsx`);
+    toast('Planilha gerada.');
+  } catch (e) {
+    console.warn(e);
+    toast('Não foi possível gerar a planilha: ' + e.message, 6000);
+  } finally {
+    botao.disabled = false;
+    botao.textContent = 'Exportar planilha (Excel)';
+  }
 }
 async function gerarBackup() {
   toast('Preparando backup…', 60000);
@@ -992,6 +1168,12 @@ function ligar() {
   $('#btnFechar').onclick = fecharFicha;
   $('#btnExcluir').onclick = excluirPonto;
   $('#btnRestaurarIa').onclick = restaurarIa;
+  $('#btnRevisarIa').onclick = revisarComIa;
+  $('#visorFechar').onclick = fecharVisor;
+  $('#visorAnt').onclick = () => { if (visorPos > 0) { visorPos--; mostrarVisor(); } };
+  $('#visorProx').onclick = () => { if (visorPos < visorLista.length - 1) { visorPos++; mostrarVisor(); } };
+  $('#visorPonto').onclick = () => { const id = visorPontoId; fecharVisor(); abrirPonto(id); };
+  $('#visorImg').onclick = () => $('#visorArea').classList.toggle('zoom');
   $('#btnUsarGps').onclick = async () => { const p = await posicaoAtual(); if (p) { kmManual = false; localAuto = false; definirLocal(p.lat, p.lon); } else toast('GPS indisponível.'); };
   $('#btnEscolher').onclick = () => { kmManual = false; localAuto = false; iniciarEscolha(); };
   $('#btnCancelaEscolha').onclick = () => concluirEscolha(null);
@@ -1002,6 +1184,14 @@ function ligar() {
     if (e.target.classList.contains('legenda')) editarFoto(e.target.closest('.foto').dataset.id, { legenda: e.target.value });
   });
   $('#fFotos').addEventListener('click', async e => {
+    const cartao = e.target.closest('.foto');
+    if (cartao && e.target.tagName === 'IMG') { abrirVisor(atual.id, cartao.dataset.id); return; }
+    if (e.target.classList.contains('estrela')) {
+      atual.fotoPrincipal = cartao.dataset.id;
+      desenharFotos();
+      toast('Foto principal definida. Toque em Salvar para confirmar.');
+      return;
+    }
     if (!e.target.classList.contains('tirar')) return;
     const id = e.target.closest('.foto').dataset.id;
     const f = await dbGet('fotos', id);
@@ -1011,7 +1201,7 @@ function ligar() {
 
   ['#repPacote', '#repSegmento', '#repStatus', '#repOrigem', '#repDe', '#repAte'].forEach(s => { $(s).onchange = resumoRelatorio; });
   $('#btnPdf').onclick = gerarPdf;
-  $('#btnCsv').onclick = gerarCsv;
+  $('#btnExcel').onclick = gerarExcel;
   $('#btnBackup').onclick = gerarBackup;
   $('#btnSalvarCfg').onclick = salvarConfig;
   $('#btnAtualizarMapas').onclick = async () => {
