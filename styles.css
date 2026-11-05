@@ -50,6 +50,7 @@ label.check input { margin: 0; }
 .perigo { background: #fff; border: 1px solid var(--verm); color: var(--verm); width: 100%; margin-top: 24px; }
 .link { background: none; border: 0; color: var(--azul); font: inherit; font-weight: 600; padding: 8px 4px; }
 .grade { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.grade.utm { grid-template-columns: 72px 1fr 1fr; }
 .grade.tres { grid-template-columns: 1fr 1fr 1fr; }
 h2 { font-size: 18px; margin: 22px 0 6px; color: var(--azul); }
 h2:first-child { margin-top: 4px; }
@@ -83,6 +84,14 @@ h3 { font-size: 16px; margin: 18px 0 2px; color: var(--azul); }
 .foto div.pe { display: flex; justify-content: space-between; align-items: center; padding: 2px 7px 4px; font-size: 12px; color: var(--sub); }
 .foto button { border: 0; background: none; color: var(--verm); font: inherit; padding: 4px 0; }
 
+#dlgImport { position: fixed; inset: 0; z-index: 1500; background: #0007; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.dlg { background: #fff; border-radius: 12px; padding: 16px; width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 10px; }
+.dlg p { margin: 0 0 4px; font-weight: 600; }
+.marca { width: 22px; height: 22px; flex: none; border: 2px solid var(--azul2); border-radius: 5px; color: var(--azul); font-weight: 700; display: flex; align-items: center; justify-content: center; }
+#lista li.sel { background: #e4effb; }
+#barraGrupo { align-items: center; }
+#barraGrupo .sub { flex: 1; }
+.prim:disabled { opacity: .45; }
 #toast { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: 2000; background: #222; color: #fff; padding: 10px 14px; border-radius: 8px; font-size: 14px; max-width: 90vw; }
 #impressao { display: none; }
 

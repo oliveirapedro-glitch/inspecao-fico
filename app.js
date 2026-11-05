@@ -66,7 +66,7 @@ function toast(msg, ms = 3500) {
 }
 
 /* ---------- Mapa ---------- */
-let map, camadaEixo, camadaPontos, camadaProjeto, camadaKm, marcadorEu;
+let map, camadaEixo, camadaPontos, camadaFotos, camadaProjeto, camadaKm, marcadorEu;
 const blocosVisiveis = new Map();
 let blocosMeta = [];
 
@@ -78,8 +78,9 @@ function iniciarMapa() {
   camadaProjeto = L.layerGroup().addTo(map);
   camadaKm = L.layerGroup().addTo(map);
   camadaEixo = L.layerGroup().addTo(map);
+  camadaFotos = L.layerGroup().addTo(map);
   camadaPontos = L.layerGroup().addTo(map);
-  L.control.layers(null, { 'Projeto (KMZ)': camadaProjeto, 'Rótulos de km': camadaKm, 'Eixo principal': camadaEixo }, { position: 'topright' }).addTo(map);
+  L.control.layers(null, { 'Projeto (KMZ)': camadaProjeto, 'Rótulos de km': camadaKm, 'Eixo principal': camadaEixo, 'Local de cada foto': camadaFotos }, { position: 'topright' }).addTo(map);
   map.on('moveend', atualizarBlocos);
   const rotulos = () => map.getContainer().classList.toggle('sem-km', map.getZoom() < 15);
   map.on('zoomend', rotulos);
@@ -122,8 +123,18 @@ async function desenharProjeto() {
     }
   }
 }
+async function desenharFotosMapa() {
+  if (!camadaFotos) return;
+  const ids = new Set(pontos.map(p => p.id));
+  const fotos = (await dbAll('fotos')).filter(f => !f.excluido && ids.has(f.pontoId) && f.lat !== '' && f.lon !== '' && Number.isFinite(Number(f.lat)));
+  camadaFotos.clearLayers();
+  for (const f of fotos) {
+    L.circleMarker([Number(f.lat), Number(f.lon)], { radius: 5, color: '#fff', weight: 1.5, fillColor: '#0f6cbd', fillOpacity: 1 }).on('click', () => abrirPonto(f.pontoId)).addTo(camadaFotos);
+  }
+}
 function desenharPontos() {
   if (!camadaPontos) return;
+  desenharFotosMapa();
   camadaPontos.clearLayers();
   for (const p of pontos) {
     if (!temLoc(p)) continue;
@@ -202,8 +213,8 @@ function desenharLista() {
     .filter(p => (!st || p.status === st) && (!termo || [p.pacote, p.segmento, p.km, p.resumo, p.descricao, p.codigo].join(' ').toLowerCase().includes(termo)))
     .sort(ordemPontos);
   $('#lista').innerHTML = sel.length ? sel.map(p => `
-    <li data-id="${esc(p.id)}">
-      <span class="bola ${STATUS_COR[p.status] || ''}"></span>
+    <li data-id="${esc(p.id)}"${modoAgrupar && selecionadosGrupo.has(p.id) ? ' class="sel"' : ''}>
+      ${modoAgrupar ? `<span class="marca">${selecionadosGrupo.has(p.id) ? '✓' : ''}</span>` : `<span class="bola ${STATUS_COR[p.status] || ''}"></span>`}
       <div class="corpo">
         <div class="tit">${esc(p.resumo || '(sem resumo)')}</div>
         <div class="meta">${[p.pacote, p.segmento, p.km && 'km ' + p.km].filter(Boolean).map(esc).join(' · ') || 'Sem localização na obra'}</div>
@@ -256,15 +267,36 @@ function mostrarFicha() {
   $('#fichaTitulo').textContent = novoAtual ? 'Novo ponto' : p.codigo;
   $('#fPacote').value = p.pacote; $('#fSegmento').value = p.segmento; $('#fKm').value = p.km;
   $('#fResumo').value = p.resumo; $('#fDescricao').value = p.descricao; $('#fObs').value = p.obsCampo;
-  $('#fStatus').value = p.status; $('#fLat').value = temLoc(p) ? Number(p.lat).toFixed(7) : ''; $('#fLon').value = temLoc(p) ? Number(p.lon).toFixed(7) : '';
+  $('#fStatus').value = p.status; $('#fLat').value = temLoc(p) ? Number(p.lat).toFixed(8) : ''; $('#fLon').value = temLoc(p) ? Number(p.lon).toFixed(8) : '';
+  mostrarUtm();
   $('#btnExcluir').hidden = novoAtual;
   $('#ficha').hidden = false;
   mostrarEixo(); mostrarDist(); desenharFotos();
 }
-function definirLocal(lat, lon) {
-  $('#fLat').value = Number(lat).toFixed(7);
-  $('#fLon').value = Number(lon).toFixed(7);
+const num2 = v => v.toFixed(2).replace('.', ',');
+function utmTxt(lat, lon) {
+  if (lat === '' || lon === '' || lat === null || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lon))) return '';
+  const u = Geo.toUtm(Number(lat), Number(lon));
+  return `UTM ${u.zonaTexto} · E ${num2(u.e)} · N ${num2(u.n)}`;
+}
+function mostrarUtm() {
+  const l = lerLocal();
+  if (!l) { $('#fE').value = ''; $('#fN').value = ''; $('#fZona').value = ''; return; }
+  const u = Geo.toUtm(l.lat, l.lon);
+  $('#fZona').value = u.zonaTexto; $('#fE').value = num2(u.e); $('#fN').value = num2(u.n);
+}
+function lerUtmDigitado() {
+  const n = id => parseFloat(String($(id).value).trim().replace(/\s/g, '').replace(',', '.'));
+  const r = Geo.fromUtm(n('#fE'), n('#fN'), $('#fZona').value);
+  if (!r) { toast('Coordenada UTM inválida. Confira zona, E e N.', 5000); mostrarUtm(); return; }
+  localAuto = false;
+  $('#fLat').value = r.lat.toFixed(8); $('#fLon').value = r.lon.toFixed(8);
   mostrarEixo(); mostrarDist();
+}
+function definirLocal(lat, lon) {
+  $('#fLat').value = Number(lat).toFixed(8);
+  $('#fLon').value = Number(lon).toFixed(8);
+  mostrarUtm(); mostrarEixo(); mostrarDist();
 }
 function lerLocal() {
   const lat = parseFloat(String($('#fLat').value).replace(',', '.'));
@@ -353,7 +385,18 @@ async function lerGpsFoto(file) {
 }
 async function lerDataFoto(file) {
   try { const e = await exifr.parse(file); if (e && e.DateTimeOriginal instanceof Date && !isNaN(e.DateTimeOriginal)) return e.DateTimeOriginal.toISOString(); } catch (_) {}
-  return null;
+  return file.lastModified ? new Date(file.lastModified).toISOString() : null;
+}
+const dataCurta = iso => new Date(iso || Date.now()).toLocaleDateString('pt-BR');
+const nomeInspecao = (iso, compl) => `Inspeção realizada (${dataCurta(iso)}): ${compl}`.slice(0, 140);
+const nomePadrao = t => /^(Foto de drone|Inspeção realizada)/.test(t || '');
+function centroide(lista) {
+  return { lat: lista.reduce((t, x) => t + Number(x.lat), 0) / lista.length, lon: lista.reduce((t, x) => t + Number(x.lon), 0) / lista.length };
+}
+function aplicarLocal(p, lat, lon) {
+  p.lat = lat; p.lon = lon;
+  const r = Geo.locate(S.eixos, lat, lon);
+  if (r && r.offset <= 1000) { p.km = r.kmTexto; p.pacote = p.pacote || r.pacote || ''; p.segmento = p.segmento || r.segmento || ''; }
 }
 async function criarFoto(file, pontoId, daCamera = false) {
   const gps = await lerGpsFoto(file);
@@ -391,7 +434,7 @@ async function desenharFotos() {
     if (f.blob) { const u = URL.createObjectURL(f.blob); urlsFicha.push(u); visual = `<img src="${u}" alt="">`; }
     return `<div class="foto" data-id="${esc(f.id)}">${visual}
       <input class="legenda" value="${esc(f.legenda)}" placeholder="Legenda" aria-label="Legenda">
-      <div class="pe"><span>${esc(f.fase)}</span><button type="button" class="tirar">Remover</button></div></div>`;
+      <div class="pe"><span>${esc(f.fase)}<br>${esc(utmTxt(f.lat, f.lon)) || 'Sem coordenadas'}</span><button type="button" class="tirar">Remover</button></div></div>`;
   }).join('');
 }
 async function editarFoto(id, alt) {
@@ -401,9 +444,14 @@ async function editarFoto(id, alt) {
   await dbPut('fotos', f);
   atualizarPendentes();
 }
-async function importarDrone(files) {
+let arquivosImportar = [];
+function pedirModoImportacao(files) {
+  arquivosImportar = files;
+  $('#dlgTexto').textContent = `${files.length} foto(s) selecionada(s). Como deseja registrar?`;
+  $('#dlgImport').hidden = false;
+}
+async function importarUmPorFoto(lista) {
   let criados = 0, semGps = 0, erros = 0;
-  const lista = [...files];
   for (let i = 0; i < lista.length; i++) {
     toast(`Processando foto ${i + 1} de ${lista.length}…`, 60000);
     const file = lista[i];
@@ -411,9 +459,8 @@ async function importarDrone(files) {
       const gps = await lerGpsFoto(file);
       if (!gps) { semGps++; continue; }
       const p = novoPonto(gps.lat, gps.lon);
-      p.resumo = `Foto de drone: ${file.name}`.slice(0, 140);
-      const r = Geo.locate(S.eixos, gps.lat, gps.lon);
-      if (r && r.offset <= 1000) { p.km = r.kmTexto; p.pacote = r.pacote || ''; p.segmento = r.segmento || ''; }
+      p.resumo = nomeInspecao(await lerDataFoto(file), file.name);
+      aplicarLocal(p, gps.lat, gps.lon);
       await criarFoto(file, p.id);
       await dbPut('pontos', p);
       pontos.push(p);
@@ -421,7 +468,83 @@ async function importarDrone(files) {
     } catch (_) { erros++; }
   }
   desenharPontos(); desenharLista(); atualizarPendentes();
-  toast(`${criados} ponto(s) criado(s).` + (semGps ? ` ${semGps} foto(s) sem coordenadas ficaram de fora: adicione-as em um ponto manualmente.` : '') + (erros ? ` ${erros} com erro.` : ''), 7000);
+  toast(`${criados} ponto(s) criado(s).` + (semGps ? ` ${semGps} foto(s) sem coordenadas ficaram de fora: ative a localização ao selecionar ou adicione-as em um ponto.` : '') + (erros ? ` ${erros} com erro.` : ''), 7000);
+}
+// Um apontamento para várias fotos. Cada foto mantém as próprias coordenadas.
+async function importarAgrupado(lista) {
+  const p = novoPonto();
+  const criadas = [];
+  let erros = 0;
+  for (let i = 0; i < lista.length; i++) {
+    toast(`Processando foto ${i + 1} de ${lista.length}…`, 60000);
+    try { criadas.push((await criarFoto(lista[i], p.id)).foto); } catch (_) { erros++; }
+  }
+  const comGps = criadas.filter(f => f.lat !== '' && f.lon !== '');
+  if (!comGps.length) {
+    for (const f of criadas) await dbDel('fotos', f.id);
+    toast('Nenhuma foto tem coordenadas. Ative a localização ao selecionar ou use + Novo ponto e escolha o local no mapa.', 8000);
+    atualizarPendentes();
+    return;
+  }
+  const c = centroide(comGps);
+  aplicarLocal(p, c.lat, c.lon);
+  p.resumo = nomeInspecao(criadas[0].tiradaEm, `${criadas.length} foto(s)`);
+  await dbPut('pontos', p);
+  pontos.push(p);
+  desenharPontos(); desenharLista(); atualizarPendentes();
+  toast(`Apontamento criado com ${criadas.length} foto(s).` + (erros ? ` ${erros} com erro.` : ''), 6000);
+  abrirPonto(p.id);
+}
+
+/* Agrupar pontos que já existem */
+let modoAgrupar = false;
+const selecionadosGrupo = new Set();
+function alternarAgrupar(ligar) {
+  modoAgrupar = ligar;
+  selecionadosGrupo.clear();
+  $('#barraGrupo').hidden = !ligar;
+  $('#acoesPontos').hidden = ligar;
+  atualizarBarraGrupo();
+  desenharLista();
+}
+function atualizarBarraGrupo() {
+  const n = selecionadosGrupo.size;
+  $('#grupoTxt').textContent = `${n} selecionado(s)`;
+  $('#btnConfirmaGrupo').disabled = n < 2;
+}
+async function agruparSelecionados() {
+  const lista = pontos.filter(p => selecionadosGrupo.has(p.id)).sort((a, b) => (a.criadoEm || '').localeCompare(b.criadoEm || ''));
+  if (lista.length < 2) return;
+  if (!confirm(`Agrupar ${lista.length} pontos em um único apontamento? As fotos e as coordenadas de cada foto serão mantidas.`)) return;
+  const stamp = agora();
+  const alvo = { ...lista[0] };
+  const juntar = campo => [...new Set(lista.map(p => (p[campo] || '').trim()).filter(Boolean))].join('\n');
+  alvo.descricao = juntar('descricao');
+  alvo.obsCampo = juntar('obsCampo');
+  for (const c of ['pacote', 'segmento']) alvo[c] = alvo[c] || (lista.find(p => p[c]) || {})[c] || '';
+  let fotos = [];
+  for (const p of lista) fotos = fotos.concat((await fotosDoPonto(p.id)).filter(f => !f.excluido));
+  for (const f of fotos) {
+    if (f.pontoId !== alvo.id) await dbPut('fotos', { ...f, pontoId: alvo.id, atualizadoEm: stamp, dirty: 1 });
+  }
+  const comGps = fotos.filter(f => f.lat !== '' && f.lon !== '' && Number.isFinite(Number(f.lat)));
+  const c = centroide(comGps.length ? comGps : lista.filter(temLoc));
+  alvo.km = lista.every(p => !p.km) ? '' : alvo.km;
+  aplicarLocal(alvo, c.lat, c.lon);
+  if (nomePadrao(alvo.resumo)) {
+    const data = fotos.map(f => f.tiradaEm).filter(Boolean).sort()[0];
+    alvo.resumo = nomeInspecao(data, `${fotos.length} foto(s)`);
+  }
+  Object.assign(alvo, { atualizadoPor: S.nome, atualizadoEm: stamp, dirty: 1 });
+  await dbPut('pontos', alvo);
+  for (const p of lista.slice(1)) {
+    await dbPut('pontos', { ...p, excluido: '1', atualizadoPor: S.nome, atualizadoEm: stamp, dirty: 1 });
+  }
+  pontos = (await dbAll('pontos')).filter(p => !p.excluido);
+  alternarAgrupar(false);
+  desenharPontos(); atualizarPendentes();
+  abrirPonto(alvo.id);
+  toast('Pontos agrupados. Revise o resumo e a descrição.', 6000);
 }
 
 /* ---------- Sincronização ---------- */
@@ -596,11 +719,11 @@ async function gerarPdf() {
     const figs = fotos.map(f => {
       if (!f.blob) return `<figure><figcaption>Foto não disponível neste aparelho. ${esc(f.legenda)}</figcaption></figure>`;
       const u = URL.createObjectURL(f.blob); urls.push(u);
-      return `<figure><img src="${u}" alt=""><figcaption>${esc(f.legenda)}${f.legenda ? ' · ' : ''}${esc(f.fase)}</figcaption></figure>`;
+      return `<figure><img src="${u}" alt=""><figcaption>${esc(f.legenda)}${f.legenda ? ' · ' : ''}${esc(f.fase)} · ${esc(dataBR(f.tiradaEm))}${f.lat !== '' ? ` · ${esc(utmTxt(f.lat, f.lon))}` : ''}</figcaption></figure>`;
     }).join('');
     html += `<section class="ponto"><h2>${esc(p.codigo)} — ${esc(p.resumo)}</h2>
       <p><b>Pacote:</b> ${esc(p.pacote) || '—'} · <b>Segmento:</b> ${esc(p.segmento) || '—'} · <b>KM:</b> ${esc(p.km) || '—'}</p>
-      <p><b>Status:</b> ${esc(p.status)} · <b>Origem:</b> ${esc(p.origem)} · <b>Coordenadas:</b> ${Number(p.lat).toFixed(6)}, ${Number(p.lon).toFixed(6)}</p>
+      <p><b>Status:</b> ${esc(p.status)} · <b>Origem:</b> ${esc(p.origem)} · <b>Coordenadas:</b> ${esc(utmTxt(p.lat, p.lon))} (SIRGAS 2000)</p>
       ${p.descricao ? `<p><b>Descrição:</b> ${esc(p.descricao)}</p>` : ''}
       ${p.obsCampo ? `<p><b>Observação de campo:</b> ${esc(p.obsCampo)}</p>` : ''}
       <p><b>Responsável:</b> ${esc(p.atualizadoPor)} · ${esc(dataBR(p.atualizadoEm))}</p>
@@ -622,13 +745,17 @@ function baixar(blob, nome) {
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
 }
 function csvDe(lista) {
-  const cols = ['codigo', 'pacote', 'segmento', 'km', 'resumo', 'descricao', 'obsCampo', 'status', 'origem', 'lat', 'lon', 'criadoPor', 'criadoEm', 'atualizadoPor', 'atualizadoEm'];
+  const cols = ['codigo', 'pacote', 'segmento', 'km', 'resumo', 'descricao', 'obsCampo', 'status', 'origem', 'utmZona', 'utmE', 'utmN', 'lat', 'lon', 'criadoPor', 'criadoEm', 'atualizadoPor', 'atualizadoEm'];
   const cel = v => {
     let t = String(v ?? '');
     if (/^[=+\-@]/.test(t) && !/^-?\d/.test(t)) t = "'" + t; // evita execução de fórmula no Excel
     return `"${t.replace(/"/g, '""')}"`;
   };
-  return '﻿' + [cols.join(';'), ...lista.map(p => cols.map(c => cel(p[c])).join(';'))].join('\r\n');
+  return '﻿' + [cols.join(';'), ...lista.map(p => {
+    const u = temLoc(p) ? Geo.toUtm(Number(p.lat), Number(p.lon)) : null;
+    const extra = u ? { utmZona: u.zonaTexto, utmE: num2(u.e), utmN: num2(u.n) } : {};
+    return cols.map(c => cel(c in extra ? extra[c] : p[c])).join(';');
+  })].join('\r\n');
 }
 function gerarCsv() {
   baixar(new Blob([csvDe(selecionados())], { type: 'text/csv;charset=utf-8' }), `inspecao-fico-${agora().slice(0, 10)}.csv`);
@@ -812,8 +939,23 @@ function ligar() {
   $('#btnGps').onclick = async () => { const p = await posicaoAtual(); if (p) map.setView([p.lat, p.lon], Math.max(map.getZoom(), 16)); else toast('GPS indisponível.'); };
   $('#busca').oninput = desenharLista;
   $('#filtroStatus').onchange = desenharLista;
-  $('#lista').onclick = e => { const li = e.target.closest('li[data-id]'); if (li) abrirPonto(li.dataset.id); };
-  $('#fotosDrone').onchange = e => { const f = [...e.target.files]; e.target.value = ''; if (f.length) importarDrone(f); };
+  $('#lista').onclick = e => {
+    const li = e.target.closest('li[data-id]');
+    if (!li) return;
+    if (!modoAgrupar) { abrirPonto(li.dataset.id); return; }
+    const id = li.dataset.id;
+    if (selecionadosGrupo.has(id)) selecionadosGrupo.delete(id); else selecionadosGrupo.add(id);
+    atualizarBarraGrupo();
+    desenharLista();
+  };
+  $('#btnAgrupar').onclick = () => alternarAgrupar(true);
+  $('#btnCancelaGrupo').onclick = () => alternarAgrupar(false);
+  $('#btnConfirmaGrupo').onclick = agruparSelecionados;
+  const fecharDlg = () => { $('#dlgImport').hidden = true; const l = arquivosImportar; arquivosImportar = []; return l; };
+  $('#dlgAgrupar').onclick = () => importarAgrupado(fecharDlg());
+  $('#dlgSeparar').onclick = () => importarUmPorFoto(fecharDlg());
+  $('#dlgCancelar').onclick = () => { fecharDlg(); };
+  $('#fotosDrone').onchange = e => { const f = [...e.target.files]; e.target.value = ''; if (f.length === 1) importarUmPorFoto(f); else if (f.length) pedirModoImportacao(f); };
 
   $('#form').onsubmit = salvarFicha;
   $('#btnFechar').onclick = fecharFicha;
@@ -822,7 +964,7 @@ function ligar() {
   $('#btnEscolher').onclick = () => { kmManual = false; localAuto = false; iniciarEscolha(); };
   $('#btnCancelaEscolha').onclick = () => concluirEscolha(null);
   $('#fKm').oninput = () => { kmManual = true; };
-  $('#fLat').onchange = $('#fLon').onchange = () => { localAuto = false; mostrarEixo(); mostrarDist(); };
+  $('#fE').onchange = $('#fN').onchange = $('#fZona').onchange = lerUtmDigitado;
   for (const id of ['#fCamera', '#fGaleria']) $(id).onchange = e => { const f = [...e.target.files]; e.target.value = ''; if (f.length) adicionarFotos(f, id === '#fCamera'); };
   $('#fFotos').addEventListener('change', e => {
     if (e.target.classList.contains('legenda')) editarFoto(e.target.closest('.foto').dataset.id, { legenda: e.target.value });

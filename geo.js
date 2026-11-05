@@ -170,6 +170,22 @@ const Geo = (() => {
     return { km, kmTexto: formatKm(km), offset: best.p.offset, pacote: best.e.pacote, segmento: best.e.segmento };
   }
 
+  // UTM em SIRGAS 2000, com a zona definida pela longitude.
+  const defUtm = (zona, sul) => `+proj=utm +zone=${zona} ${sul ? '+south ' : ''}+ellps=GRS80 +units=m +no_defs`;
+  function toUtm(lat, lon) {
+    const zona = Math.min(60, Math.max(1, Math.floor((lon + 180) / 6) + 1));
+    const sul = lat < 0;
+    const [e, n] = proj4('WGS84', defUtm(zona, sul)).forward([lon, lat]);
+    return { e, n, zona, hemisferio: sul ? 'S' : 'N', zonaTexto: `${zona}${sul ? 'S' : 'N'}` };
+  }
+  function fromUtm(e, n, zonaTexto) {
+    const m = /^\s*(\d{1,2})\s*([NSns])\s*$/.exec(zonaTexto || '');
+    if (!m || Number(m[1]) < 1 || Number(m[1]) > 60) return null;
+    if (!(e >= 100000 && e <= 900000 && n >= 0 && n <= 10000000)) return null;
+    const [lon, lat] = proj4(defUtm(Number(m[1]), m[2].toUpperCase() === 'S'), 'WGS84').forward([e, n]);
+    return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
+  }
+
   function formatKm(km) {
     const metros = Math.round(km * 1000);
     const k = Math.floor(metros / 1000);
@@ -346,5 +362,5 @@ const Geo = (() => {
     return { bounds: [[s, w], [n, e]], pieces, resolucao };
   }
 
-  return { dist, parseKmz, buildAxis, locate, formatKm, importOrtho, separarOrto, lengthOf };
+  return { dist, toUtm, fromUtm, parseKmz, buildAxis, locate, formatKm, importOrtho, separarOrto, lengthOf };
 })();

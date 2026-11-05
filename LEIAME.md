@@ -70,7 +70,7 @@ Mapas/
 ### Pré-inspeção (com internet)
 
 1. Selecione **Pré-inspeção** no topo e clique em **Sincronizar**. O app carrega os eixos do Drive.
-2. Em **Pontos**, importe fotos com GPS (uma foto por ponto) ou crie pontos manualmente. Fotos com coordenadas geram um ponto cada.
+2. Em **Pontos**, importe fotos com GPS, escolhendo um apontamento com todas as fotos ou um ponto por foto, ou crie pontos manualmente. Fotos com coordenadas geram um ponto cada.
 3. Confira Pacote, Segmento e KM, preenchidos pelo eixo mais próximo.
 4. Clique em **Sincronizar**.
 

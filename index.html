@@ -39,9 +39,15 @@
           <option>A verificar</option><option>Verificado</option><option>Requer ação</option>
         </select>
       </div>
-      <div class="acoes">
+      <div class="acoes" id="acoesPontos">
         <button id="btnNovoLista" type="button" class="prim">+ Novo ponto</button>
         <label class="btn">Importar fotos com GPS<input id="fotosDrone" type="file" accept="image/*" multiple hidden></label>
+        <button id="btnAgrupar" type="button" class="btn">Agrupar pontos</button>
+      </div>
+      <div class="acoes" id="barraGrupo" hidden>
+        <span id="grupoTxt" class="sub"></span>
+        <button id="btnConfirmaGrupo" type="button" class="prim" disabled>Agrupar</button>
+        <button id="btnCancelaGrupo" type="button" class="btn">Cancelar</button>
       </div>
       <ul id="lista"></ul>
     </section>
@@ -128,10 +134,13 @@
         <label>Status<select id="fStatus"><option>A verificar</option><option>Verificado</option><option>Requer ação</option></select></label>
 
         <h3>Localização</h3>
-        <div class="grade">
-          <label>Latitude<input id="fLat" inputmode="decimal"></label>
-          <label>Longitude<input id="fLon" inputmode="decimal"></label>
+        <input id="fLat" type="hidden"><input id="fLon" type="hidden">
+        <div class="grade utm">
+          <label>Zona<input id="fZona" placeholder="22S" maxlength="3"></label>
+          <label>E (m)<input id="fE" inputmode="decimal" placeholder="000000,00"></label>
+          <label>N (m)<input id="fN" inputmode="decimal" placeholder="0000000,00"></label>
         </div>
+        <p class="sub">UTM, SIRGAS 2000</p>
         <p id="fDist" class="sub"></p>
         <div class="acoes">
           <button id="btnUsarGps" type="button" class="btn">Usar meu GPS</button>
@@ -147,6 +156,14 @@
         <button id="btnExcluir" type="button" class="perigo">Excluir ponto</button>
       </div>
     </form>
+  </div>
+  <div id="dlgImport" hidden>
+    <div class="dlg">
+      <p id="dlgTexto"></p>
+      <button id="dlgAgrupar" type="button" class="prim">Um apontamento com todas as fotos</button>
+      <button id="dlgSeparar" type="button" class="btn">Um ponto para cada foto</button>
+      <button id="dlgCancelar" type="button" class="link">Cancelar</button>
+    </div>
   </div>
   <div id="toast" role="status" hidden></div>
 </div>
