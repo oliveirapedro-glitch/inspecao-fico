@@ -1249,7 +1249,7 @@ async function mostrarAjustes() {
     txt = `Espaço usado: ${(u.usage / 1048576).toFixed(0)} MB. `;
   }
   const ult = await dbGet('kv', 'ultimaSync');
-  $('#versaoApp').textContent = VERSAO_APP;
+  $('#versaoApp').textContent = `${VERSAO_APP} · Por Pedro Oliveira · Engenharia/ATO`;
   aplicarPerfil();
   carregarUsuarios();
   $('#espaco').textContent = txt + (ult ? `Última sincronização: ${dataBR(ult)}.` : 'Ainda não sincronizado.');
