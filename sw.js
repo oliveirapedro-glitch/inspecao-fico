@@ -1,5 +1,5 @@
 // Guarda os arquivos do app para abrir sem internet. Ao publicar uma alteração, aumente a VERSAO.
-const VERSAO = 'inspecao-v14';
+const VERSAO = 'inspecao-v15';
 const ARQUIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'geo.js', 'manifest.webmanifest',
   'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/leaflet.markercluster.js', 'vendor/MarkerCluster.css', 'vendor/exceljs.min.js', 'vendor/jszip.min.js', 'vendor/exifr.js', 'vendor/geotiff.bundle.js', 'vendor/proj4.js',
   'vendor/images/marker-icon.png', 'vendor/images/marker-shadow.png', 'vendor/images/layers.png',

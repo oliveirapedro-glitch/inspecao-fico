@@ -5,7 +5,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const agora = () => new Date().toISOString();
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
 const dataBR = iso => iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '';
-const VERSAO_APP = 'Versão 07';
+const VERSAO_APP = 'Versão 08';
 const STATUS_COR = { 'A verificar': 's-averificar', 'Verificado': 's-verificado', 'Requer ação': 's-requeracao' };
 
 /* ---------- Banco local ---------- */
@@ -431,7 +431,7 @@ function lerUtmDigitado() {
 }
 function mostrarIa() {
   const p = atual;
-  const originais = [['Resumo', p.resumoOriginal], ['Descrição', p.descricaoOriginal], ['Observação de campo', p.obsOriginal]].filter(x => x[1]);
+  const originais = [['Resumo', p.resumoOriginal], ['Apontamentos', p.descricaoOriginal], ['Ações Sugeridas', p.obsOriginal]].filter(x => x[1]);
   $('#iaCaixa').hidden = p.iaStatus !== 'revisado' || !originais.length;
   $('#iaOriginal').innerHTML = originais.map(x => `<p><b>${esc(x[0])}:</b> ${esc(x[1])}</p>`).join('');
   $('#fIaBloq').checked = p.iaBloqueado === '1';
@@ -518,15 +518,54 @@ async function excluirPonto() {
 }
 
 /* ---------- Fotos ---------- */
-function reduzirImagem(file, lado = 2048, q = 0.82) {
+// Texto branco com contorno azul, no canto inferior esquerdo da foto.
+function desenharCarimbo(ctx, linhas, largura, altura, alturaLinha, margem) {
+  ctx.textBaseline = 'top';
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  const topo = altura - margem - alturaLinha * linhas.length;
+  linhas.forEach((t, i) => {
+    let tam = alturaLinha * 0.72;
+    ctx.font = `${i === 0 ? 800 : 700} ${tam}px system-ui, -apple-system, Roboto, Arial, sans-serif`;
+    const medida = ctx.measureText(t).width;
+    if (medida > largura - margem * 2) {
+      tam *= (largura - margem * 2) / medida;
+      ctx.font = `${i === 0 ? 800 : 700} ${tam}px system-ui, -apple-system, Roboto, Arial, sans-serif`;
+    }
+    const y = topo + i * alturaLinha;
+    ctx.strokeStyle = '#0a2a52';
+    ctx.lineWidth = Math.max(3, tam * 0.17);
+    ctx.strokeText(t, margem, y);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(t, margem, y);
+  });
+}
+function linhasCarimbo(lat, lon, dataIso, prec) {
+  const data = new Date(dataIso || Date.now()).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).replace(',', '');
+  const anoCompleto = new Date(dataIso || Date.now()).toLocaleDateString('pt-BR') + ' ' + data.split(' ').pop();
+  if (lat === '' || lat === null || lat === undefined) return ['Local não identificado', `Data e hora: ${anoCompleto}`];
+  const u = Geo.toUtm(Number(lat), Number(lon));
+  const r = Geo.locate(S.eixos, Number(lat), Number(lon));
+  const obra = r && r.offset <= 1000
+    ? `KM ${r.kmTexto}${r.pacote ? ' · ' + r.pacote : ''}${r.segmento ? ' · ' + r.segmento : ''}`
+    : 'KM não identificado';
+  return [obra, `UTM ${u.zonaTexto} · E ${num2(u.e)} · N ${num2(u.n)}`, `${anoCompleto}${prec ? ` · GPS ±${Math.round(prec)} m` : ''}`];
+}
+function reduzirImagem(file, lado = 2048, q = 0.82, carimbo = null) {
   return new Promise((res, rej) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
       const k = Math.min(1, lado / Math.max(img.naturalWidth, img.naturalHeight));
       const c = document.createElement('canvas');
-      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const larg = Math.round(img.naturalWidth * k), alt = Math.round(img.naturalHeight * k);
+      const alturaLinha = Math.max(20, Math.round(Math.min(larg, alt * 1.4) * 0.034));
+      const margem = Math.round(alturaLinha * 0.5);
+      c.width = larg;
+      c.height = alt;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, larg, alt);
+      if (carimbo) desenharCarimbo(ctx, carimbo, larg, alt, alturaLinha, margem);
       URL.revokeObjectURL(url);
       c.toBlob(b => { c.width = c.height = 0; b ? res(b) : rej(new Error('Falha ao comprimir a foto.')); }, 'image/jpeg', q);
     };
@@ -555,10 +594,18 @@ function aplicarLocal(p, lat, lon) {
 }
 async function criarFoto(file, pontoId, daCamera = false) {
   const gps = await lerGpsFoto(file);
-  const data = await lerDataFoto(file);
-  const blob = await reduzirImagem(file);
+  const data = daCamera ? agora() : await lerDataFoto(file);
+  // Foto tirada agora usa o GPS do aparelho; foto antiga só usa as próprias coordenadas.
+  let atualGps = null;
+  if (daCamera && !gps) {
+    toast('Obtendo posição do GPS…', 15000);
+    atualGps = await posicaoAtual();
+  }
+  const lat = gps ? gps.lat : (atualGps ? atualGps.lat : '');
+  const lon = gps ? gps.lon : (atualGps ? atualGps.lon : '');
+  const blob = await reduzirImagem(file, 2048, 0.82, linhasCarimbo(lat, lon, data, atualGps && atualGps.prec));
   const foto = {
-    id: uuid(), pontoId, fase: S.etapa, legenda: '', lat: gps ? gps.lat : (daCamera && minhaPos ? minhaPos.lat : ''), lon: gps ? gps.lon : (daCamera && minhaPos ? minhaPos.lon : ''),
+    id: uuid(), pontoId, fase: S.etapa, legenda: '', lat, lon,
     tiradaEm: data || agora(), criadoPor: S.nome, atualizadoEm: agora(), driveId: '', url: '', excluido: '', dirty: 1, blob
   };
   await dbPut('fotos', foto);
@@ -735,7 +782,7 @@ async function agruparSelecionados() {
   alternarAgrupar(false);
   desenharPontos(); atualizarPendentes();
   abrirPonto(alvo.id);
-  toast('Pontos agrupados. Revise o resumo e a descrição.', 6000);
+  toast('Pontos agrupados. Revise o resumo e os apontamentos.', 6000);
 }
 
 /* ---------- Sincronização ---------- */
@@ -973,8 +1020,8 @@ async function gerarPdf() {
     html += `<section class="ponto"><h2>${esc(p.codigo)} — ${esc(p.resumo)}</h2>
       <p><b>Pacote:</b> ${esc(p.pacote) || '—'} · <b>Segmento:</b> ${esc(p.segmento) || '—'} · <b>KM:</b> ${esc(p.km) || '—'}</p>
       <p><b>Status:</b> ${esc(p.status)} · <b>Origem:</b> ${esc(p.origem)} · <b>Coordenadas:</b> ${esc(utmTxt(p.lat, p.lon))} (SIRGAS 2000)</p>
-      ${p.descricao ? `<p><b>Descrição:</b> ${esc(p.descricao)}</p>` : ''}
-      ${p.obsCampo ? `<p><b>Observação de campo:</b> ${esc(p.obsCampo)}</p>` : ''}
+      ${p.descricao ? `<p><b>Apontamentos:</b> ${esc(p.descricao)}</p>` : ''}
+      ${p.obsCampo ? `<p><b>Ações Sugeridas:</b> ${esc(p.obsCampo)}</p>` : ''}
       <p><b>Responsável:</b> ${esc(p.atualizadoPor)} · ${esc(dataBR(p.atualizadoEm))}</p>
       <div class="imgs">${figs}</div></section>`;
   }
@@ -1042,7 +1089,7 @@ async function gerarExcel() {
     });
     const colunas = [
       ['Código', 'codigo', 17], ['Pacote', 'pacote', 10], ['Segmento', 'segmento', 11], ['KM', 'km', 10],
-      ['Resumo', 'resumo', 30], ['Descrição', 'descricao', 50], ['Observação de campo', 'obsCampo', 42], ['Status', 'status', 13], ['Origem', 'origem', 13],
+      ['Resumo', 'resumo', 30], ['Apontamentos', 'descricao', 50], ['Ações Sugeridas', 'obsCampo', 42], ['Status', 'status', 13], ['Origem', 'origem', 13],
       ['Zona UTM', 'utmZona', 8], ['E (m)', 'utmE', 12], ['N (m)', 'utmN', 13],
       ['Criado por', 'criadoPor', 16], ['Criado em', 'criadoEm', 16], ['Atualizado por', 'atualizadoPor', 16], ['Atualizado em', 'atualizadoEm', 16], ['Imagem', 'imagem', 46]
     ];

@@ -126,7 +126,7 @@ Se alterar o `Code.gs`, use **Implantar > Gerenciar implantações > Editar > No
 - **Edição simultânea:** se duas pessoas alterarem o mesmo ponto, prevalece a alteração com data e hora mais recentes.
 - **Backup:** antes de limpar dados do navegador ou trocar de aparelho, sincronize ou use **Ajustes > Baixar backup**.
 - **GPS:** a localização do celular serve para encontrar o ponto, não para medição topográfica.
-- **Fotos:** são reduzidas para até 2.048 px antes do envio. Os originais do drone continuam na Maply.
+- **Fotos:** são reduzidas para até 2.048 px antes do envio e recebem, no canto inferior esquerdo, o texto com km, UTM, data e hora do momento da foto. Os originais do drone continuam na Maply.
 - **MDT e outras camadas:** não são exibidos nesta versão.
 - **Km:** é calculado somente no eixo principal, pelos rótulos do KMZ. Ramais e pátios com numeração própria devem ser conferidos e corrigidos manualmente.
 - **KMZ sem rótulos de km:** informe o km inicial no nome do arquivo, como `eixo_km-0012+500.kmz`, com a linha desenhada no sentido crescente.
